@@ -7,9 +7,9 @@ from typing import List
 STDERROR_PATH = "output/stderr.json"
 
 
-def write_to_stderr(errors: List[str]) -> None:
+def write_error_log(errors: List[str]) -> None:
     """
-    Write validation errors to STDERROR_PATH as JSON.
+    Write errors to the standard error log file as JSON.
     """
     payload = {
         "status": "error",

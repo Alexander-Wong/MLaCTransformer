@@ -25,7 +25,7 @@ htmlcov/
 *.swp
 
 # Application output
-errors.json
+output/
 
 # OS
 .DS_Store

@@ -5,7 +5,7 @@ import sys
 from src.mlac_transformer.excel_to_json import ExcelToJson
 from src.mlac_transformer.transformers import Transformers
 from src.mlac_transformer.file_validator import validate_args
-from src.mlac_transformer.error_logger import write_to_stderr
+from src.mlac_transformer.error_logger import write_error_log
 
 
 def transformer() -> None:
@@ -21,7 +21,7 @@ def transformer() -> None:
 
     errors = validate_args(args.excel_file, args.yaml_file)
     if errors:
-        write_to_stderr(errors)
+        write_error_log(errors)
         sys.exit(1)
 
     ExcelToJson(args.excel_file).run()

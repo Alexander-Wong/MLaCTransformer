@@ -68,9 +68,9 @@ poetry run python transformer.py --help
 
 ## Error Handling
 
-If either file is missing or has an invalid extension, the application exits with code `1` and writes an `errors.json` file in the current directory.
+If either file is missing or has an invalid extension, the application exits with code `1` and writes the errors to `output/stderr.json`.
 
-**Example `errors.json`:**
+**Example `output/stderr.json`:**
 ```json
 {
   "status": "error",
