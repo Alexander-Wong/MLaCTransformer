@@ -1,0 +1,15 @@
+[tool.poetry]
+name = "mlac-transformer"
+version = "0.1.0"
+description = "A transformer application that processes Excel and YAML files"
+authors = []
+packages = [{include = "mlac_transformer", from = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+openpyxl = "^3.1.0"
+PyYAML = "^6.0.1"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
