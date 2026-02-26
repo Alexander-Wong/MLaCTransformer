@@ -13,8 +13,18 @@ MLaCTransformer/
 └── src/
     └── mlac_transformer/
         ├── __init__.py
-        ├── excel_to_json.py
-        └── transformers.py
+        ├── excel_to_json/
+        │   ├── __init__.py
+        │   └── excel_to_json.py
+        ├── transformers/
+        │   ├── __init__.py
+        │   └── transformers.py
+        ├── file_validator/
+        │   ├── __init__.py
+        │   └── file_validator.py
+        └── error_logger/
+            ├── __init__.py
+            └── error_logger.py
 ```
 
 ---
