@@ -2,6 +2,9 @@
 
 import argparse
 import sys
+from pathlib import Path
+
+RESULT_PATH = "output/result.json"
 from src.mlac_transformer.excel_to_json import ExcelToJson
 from src.mlac_transformer.transformers import Transformers
 from src.mlac_transformer.file_validator import validate_args
@@ -24,7 +27,11 @@ def transformer() -> None:
         write_error_log(errors)
         sys.exit(1)
 
-    ExcelToJson(args.excel_file).run()
+    json_result = ExcelToJson(args.excel_file).run()
+    result_path = Path(RESULT_PATH)
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+    result_path.write_text(json_result, encoding="utf-8")
+    print(f"Result saved to '{RESULT_PATH}'.")
     Transformers(args.yaml_file).run()
 
 

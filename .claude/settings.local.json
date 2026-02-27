@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(poetry run python transformer.py mock/input.xlsx mock/rules.yaml)",
+      "Bash(poetry run python3 transformer.py mock/input.xlsx mock/rules.yaml)",
+      "Bash(poetry install)",
+      "Bash(poetry run python3 transformer.py data.csv config.txt)",
+      "Bash(echo \"exit:$?\")",
+      "Bash(poetry run python3 transformer.py --help)",
+      "Bash(poetry run python3 transformer.py mock/rules_tem.json mock/rules.yaml)",
+      "Bash(poetry run python3 -c \":*)",
+      "Bash(python3 -c \":*)"
+    ]
+  }
+}
