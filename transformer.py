@@ -1,38 +1,44 @@
-"""Entry point for MLaCTransformer."""
-
 import argparse
 import sys
-from pathlib import Path
 
-RESULT_PATH = "output/result.json"
+from src.mlac_transformer.logger import init_log, write_log
+from src.mlac_transformer.params_validator import validate_args
 from src.mlac_transformer.excel_to_json import ExcelToJson
 from src.mlac_transformer.transformers import Transformers
-from src.mlac_transformer.file_validator import validate_args
-from src.mlac_transformer.error_logger import write_error_log
+
+
 
 
 def transformer() -> None:
     """
     Handles argument parsing, validation, and orchestrating the transformation process.
     """
+    init_log()
+
     parser = argparse.ArgumentParser(
         description="MLaCTransformer: transform Excel + YAML inputs."
     )
+
     parser.add_argument("excel_file", help="Path to the input Excel file (.xlsx)")
     parser.add_argument("yaml_file", help="Path to the YAML configuration file (.yaml/.yml)")
     args = parser.parse_args()
 
+    write_log("info", "Step 1/3 — Parameter validation: validating input files.")
     errors = validate_args(args.excel_file, args.yaml_file)
     if errors:
-        write_error_log(errors)
+        write_log("error", f"Parameter validation failed — {len(errors)} error(s) found:")
+        for error in errors:
+            write_log("error", f"  {error}")
         sys.exit(1)
+    write_log("info", "Parameter validation passed.")
 
-    json_result = ExcelToJson(args.excel_file).run()
-    result_path = Path(RESULT_PATH)
-    result_path.parent.mkdir(parents=True, exist_ok=True)
-    result_path.write_text(json_result, encoding="utf-8")
-    print(f"Result saved to '{RESULT_PATH}'.")
-    Transformers(args.yaml_file).run()
+    write_log("info", f"Step 2/3 — Raw data generation: extracting '{args.excel_file}' to JSON.")
+    raw_path = ExcelToJson(args.excel_file).run()
+    write_log("info", f"Raw data generation complete. Output: '{raw_path}'.")
+
+    write_log("info", f"Step 3/3 — Data transformation: applying YAML rules from '{args.yaml_file}'.")
+    Transformers(raw_path, args.yaml_file).run()
+    write_log("info", "Data transformation complete.")
 
 
 if __name__ == "__main__":

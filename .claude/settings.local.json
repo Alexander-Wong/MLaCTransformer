@@ -9,7 +9,9 @@
       "Bash(poetry run python3 transformer.py --help)",
       "Bash(poetry run python3 transformer.py mock/rules_tem.json mock/rules.yaml)",
       "Bash(poetry run python3 -c \":*)",
-      "Bash(python3 -c \":*)"
+      "Bash(python3 -c \":*)",
+      "Bash(poetry run python3 transformer.py missing.xlsx missing.yaml)",
+      "Bash(echo \"Exit: $?\")"
     ]
   }
 }
