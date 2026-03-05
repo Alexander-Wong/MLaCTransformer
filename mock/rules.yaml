@@ -1,0 +1,153 @@
+# =============================================================================
+# DECLARATIVE TRANSFORM SPECIFICATION  —  multi-sheet
+# =============================================================================
+# Top-level structure:
+#
+#   input:                   declares the source workbook and which sheets to process
+#   sheets:                  one entry per sheet; each is a full transform definition
+#     <sheet_name>:
+#       sitecore_config:     sitecore target settings for this sheet's output
+#       columns:             maps logical "base" and "packages" to actual column headers
+#       items:               declarative hierarchy to build (group → spec → packageSpec)
+#
+# ITEM DEFINITION KEYS:
+#   templateKey       : sitecore template alias (must exist in sitecore_config.templates)
+#   source            : JQ expression on the rows array  |  "SCOPED_BETWEEN_GROUPS"
+#   name_from         : { field, pattern }  — extract name via regex capture group
+#   name_static       : literal string name
+#   name_slug         : { field }  — slugify field value for use as node name
+#   fields            : list of { name, from_field, from_pattern }
+#   children          : nested item definitions (recursive)
+#   package_children  : { templateKey, only_when_differs, fields }
+#                       auto-generates one child per package column that differs from base
+#
+# SPECIAL from_field TOKENS:
+#   __base_column__     resolves to the value in the declared base column
+#   __package_column__  resolves to the current package column (inside package_children)
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# input — tells the processor where to find data for each sheet
+# ---------------------------------------------------------------------------
+input:
+  workbook_key: "workbook"      # top-level key in the JSON that holds the workbook
+  sheets:                       # sheet names to process (order matters for output)
+    - specs
+    # - updates                 # uncomment to also process the updates sheet
+
+
+# ---------------------------------------------------------------------------
+# sheets — one entry per sheet declared in input.sheets
+# ---------------------------------------------------------------------------
+sheets:
+
+  # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  # SHEET: specs
+  # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  specs:
+
+    sitecore_config:
+      modelPath: "/sitecore/content/acura-platform/resources/components/vehicles/2025/integra/page-content/specs/specifications"
+      backupName: "specs-and-price-DD-MM-YYYY-HH-MM-SS"
+      backupPath: "../"
+      backupCount: 5
+      type: "table"
+      operation: "create"
+      templates:
+        folder:      "{4A2D8611-DA48-4664-B794-62F97513D8DB}"
+        group:       "{87169817-97AA-409F-8324-342CF34E7055}"
+        spec:        "{6EEC54AA-3E5D-4F71-AB97-3253ED1E6D38}"
+        packageSpec: "{050DEEDD-ADD5-4C8A-A75F-312D5C070D6D}"
+        modal:       "{7A770BDC-69A8-4566-9CB1-E4D037BB8A8B}"
+
+    # Column definitions — map logical roles to actual input column headers
+    columns:
+      base: "Integra"
+      packages:
+        - "Integra"
+        - "A-Spec® Package"
+        - "A-Spec® w/Technology Package CVT"
+        - "A-Spec® w/Technology Package 6MT"
+        - "Type S"
+
+    # Hierarchy to build
+    items:
+      - templateKey: "group"
+        # Group header rows are identified by " > " in the Packages field
+        source: '[.[] | select(.Packages | test(" > "))]'
+        name_from:
+          field: "Packages"
+          pattern: "^(.+?)\\s*>"
+        fields:
+          - name: "Group Label"
+            from_field: "Packages"
+            from_pattern: "^(.+?)\\s*>"
+          - name: "Group Description"
+            from_field: "Packages"
+            from_pattern: ">\\s*(.+?)\\s*$"
+
+        children:
+          - templateKey: "spec"
+            # SCOPED_BETWEEN_GROUPS: processor automatically slices rows that
+            # fall between this group header and the next one
+            source: "SCOPED_BETWEEN_GROUPS"
+            name_from:
+              field: "Packages"
+              pattern: "^(.+)$"
+            fields:
+              - name: "Specification Label"
+                from_field: "Packages"
+              - name: "Specification Value"
+                from_field: "__base_column__"
+
+            # Auto-generate one packageSpec child per trim that differs from base
+            package_children:
+              templateKey: "packageSpec"
+              only_when_differs: true
+              fields:
+                - name: "Specification Value"
+                  from_field: "__package_column__"
+
+
+  # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  # SHEET: updates  (example — shows how a second sheet with different
+  #                  structure is declared independently)
+  # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  # updates:
+  #
+  #   sitecore_config:
+  #     modelPath: "/sitecore/content/acura-platform/resources/components/vehicles/2025/integra/page-content/specs/updates"
+  #     backupName: "updates-DD-MM-YYYY-HH-MM-SS"
+  #     backupPath: "../"
+  #     backupCount: 5
+  #     type: "list"
+  #     operation: "create"
+  #     templates:
+  #       folder:  "{4A2D8611-DA48-4664-B794-62F97513D8DB}"
+  #       entry:   "{SOME-TEMPLATE-GUID-HERE}"
+  #
+  #   columns:
+  #     base: "Revision Date"
+  #     packages: []
+  #
+  #   items:
+  #     - templateKey: "entry"
+  #       source: '[.[] | select(.Feature != null and .Feature != "" and .Feature != "\u00a0")]'
+  #       name_from:
+  #         field: "Feature"
+  #         pattern: "^(.+)$"
+  #       fields:
+  #         - name: "Revision Date"
+  #           from_field: "Revision Date"
+  #         - name: "Feature"
+  #           from_field: "Feature"
+  #         - name: "Change"
+  #           from_field: "Contents of Change"
+  #         - name: "Affected Trims"
+  #           from_field: "Affected Trims"
+  #         - name: "Before"
+  #           from_field: "Before"
+  #         - name: "After"
+  #           from_field: "After"
+  #         - name: "Notes"
+  #           from_field: "Notes"

@@ -4,7 +4,7 @@ import sys
 from src.mlac_transformer.logger import init_log, write_log
 from src.mlac_transformer.params_validator import validate_args
 from src.mlac_transformer.excel_to_json import ExcelToJson
-from src.mlac_transformer.transformers import Transformers
+from src.mlac_transformer.transform import Transformers
 
 
 
@@ -33,12 +33,12 @@ def transformer() -> None:
     write_log("info", "Parameter validation passed.")
 
     write_log("info", f"Step 2/3 — Raw data generation: extracting '{args.excel_file}' to JSON.")
-    raw_path = ExcelToJson(args.excel_file).run()
-    write_log("info", f"Raw data generation complete. Output: '{raw_path}'.")
+    raw_file = ExcelToJson(args.excel_file).run()
+    write_log("info", f"Raw data generation complete. Output: '{raw_file}'.")
 
     write_log("info", f"Step 3/3 — Data transformation: applying YAML rules from '{args.yaml_file}'.")
-    Transformers(raw_path, args.yaml_file).run()
-    write_log("info", "Data transformation complete.")
+    transform_path = Transformers(raw_file, args.yaml_file).run()
+    write_log("info", f"Data transformation complete. Output: '{transform_path}'.")
 
 
 if __name__ == "__main__":

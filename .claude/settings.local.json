@@ -11,7 +11,10 @@
       "Bash(poetry run python3 -c \":*)",
       "Bash(python3 -c \":*)",
       "Bash(poetry run python3 transformer.py missing.xlsx missing.yaml)",
-      "Bash(echo \"Exit: $?\")"
+      "Bash(echo \"Exit: $?\")",
+      "Bash(python3 transformer.py mock/input.xlsx mock/rules.yaml)",
+      "Bash(git -C /Users/alexanderwong/Documents/VML/MLaCTransformer log --oneline -15)",
+      "Bash(git -C /Users/alexanderwong/Documents/VML/MLaCTransformer diff HEAD)"
     ]
   }
 }
