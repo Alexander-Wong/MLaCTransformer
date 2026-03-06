@@ -29,7 +29,23 @@ class Transformers:
             columns:
               base: "ColName"
               packages: ["ColA", "ColB", ...]
-            items: [ ... ]
+            items:
+              - templateKey: "group"
+                filter: '<JQ on all rows>'
+                children:
+                  - templateKey: "spec"
+                    filter: '<JQ on scoped rows>'
+                    children:                          # N levels deep
+                      - templateKey: "packageSpec"
+                        source_input: "packages"       # JQ on normalized package rows
+                        filter: '<JQ on package rows>'
+                        only_when_differs: true
+                        fields: [...]
+
+    source_input values:
+        "rows"     (default) — source JQ operates on the inherited row list context
+        "packages" — source JQ operates on [{__column__, __value__, __base_value__}, ...]
+                     derived from columns.packages and the parent spec row
 
     Usage:
         t = Transformers(raw_file="path/input.json", yaml_file="path/transform.yaml")
@@ -184,30 +200,11 @@ class Transformers:
         columns_def     = sheet_spec.get("columns", {})
         items_def       = sheet_spec.get("items", [])
 
-        output_items = []
+        output_items = self._build_items(flat_rows, items_def, columns_def)
 
-        for item_def in items_def:
-            source_expr = item_def.get("source", "")
-
-            if item_def.get("templateKey") == "group":
-                groups = self._split_rows_into_groups(flat_rows, source_expr)
-                for group_row, spec_rows in groups:
-                    output_items.append(
-                        self._build_group_item(group_row, spec_rows, item_def, columns_def)
-                    )
-            else:
-                # Top-level non-group items: apply JQ directly to all rows
-                try:
-                    selected = jq.first(source_expr, flat_rows) or []
-                except Exception as e:
-                    write_log("warning", f"JQ error on source '{source_expr}': {e}")
-                    selected = []
-                for row in selected:
-                    output_items.append(self._build_spec_item(row, item_def, columns_def))
-
-        groups_n  = len(output_items)
-        specs_n   = sum(len(i.get("children", [])) for i in output_items)
-        pkg_n     = sum(
+        groups_n = len(output_items)
+        specs_n  = sum(len(i.get("children", [])) for i in output_items)
+        pkg_n    = sum(
             len(s.get("children", []))
             for i in output_items
             for s in i.get("children", [])
@@ -232,21 +229,134 @@ class Transformers:
         }
 
     # =========================================================================
-    # GROUP / SPEC / PACKAGESPEC BUILDERS
+    # RECURSIVE ITEM BUILDER
     # =========================================================================
 
-    def _split_rows_into_groups(self, rows: list, group_source_expr: str) -> list:
+    def _build_items(self, context: list, items_def: list,
+                     columns_def: dict, parent_row: dict = None) -> list:
         """
-        Apply the JQ group-source expression to the full rows array, locate the
+        Recursively build output items from a context list and item definitions.
+
+        Args:
+            context    : List of row dicts to apply source JQ expressions to.
+            items_def  : Item definition list from the YAML.
+            columns_def: The columns block from the sheet definition.
+            parent_row : The parent item's row dict, used when a child declares
+                         source_input='packages' to generate normalized package rows.
+        """
+        output = []
+        for item_def in items_def:
+            output.extend(self._build_item_list(context, item_def, columns_def, parent_row))
+        return output
+
+    def _build_item_list(self, context: list, item_def: dict,
+                         columns_def: dict, parent_row: dict = None) -> list:
+        """Process one item definition and return the list of built items."""
+        filter_expr  = item_def.get("filter", "")
+        source_input = item_def.get("source_input", "rows")
+
+        # Determine the JQ input based on source_input
+        if source_input == "packages":
+            jq_input = self._normalize_package_rows(parent_row or {}, columns_def)
+        else:
+            jq_input = context
+
+        # Group items use the scoping mechanism
+        if item_def.get("templateKey") == "group":
+            return self._build_group_items(jq_input, filter_expr, item_def, columns_def)
+
+        # All other items: apply filter JQ to jq_input
+        try:
+            selected = jq.first(filter_expr, jq_input) or []
+        except Exception as e:
+            write_log("warning", f"JQ error on filter '{filter_expr}': {e}")
+            selected = []
+
+        # For package rows: apply only_when_differs and empty-value filter
+        if source_input == "packages":
+            only_differs = item_def.get("only_when_differs", False)
+            selected = [
+                r for r in selected
+                if r.get("__value__")
+                and (not only_differs or r.get("__value__") != r.get("__base_value__"))
+            ]
+
+        result = []
+        for row in selected:
+            item = self._build_single_item(row, item_def, columns_def)
+            children_def = item_def.get("children", [])
+            if children_def:
+                children = self._build_items(
+                    context=[row],
+                    items_def=children_def,
+                    columns_def=columns_def,
+                    parent_row=row,
+                )
+                if children:
+                    item["children"] = children
+            result.append(item)
+        return result
+
+    def _build_group_items(self, rows: list, filter_expr: str,
+                           item_def: dict, columns_def: dict) -> list:
+        """Handle group-level items with row scoping via _split_rows_into_groups."""
+        groups = self._split_rows_into_groups(rows, filter_expr)
+        result = []
+        for group_row, spec_rows in groups:
+            item = self._build_single_item(group_row, item_def, columns_def)
+            children_def = item_def.get("children", [])
+            if children_def:
+                # Pass [group_row] + spec_rows so children filter can use .[0] / .[1:]
+                child_context = [group_row] + spec_rows
+                children = self._build_items(child_context, children_def, columns_def, parent_row=group_row)
+                if children:
+                    item["children"] = children
+            result.append(item)
+        return result
+
+    def _build_single_item(self, row: dict, item_def: dict, columns_def: dict) -> dict:
+        """Build one output item dict (name, templateKey, fields) without recursing."""
+        base_col = columns_def.get("base", "")
+        return {
+            "name":        self._resolve_item_name(row, item_def),
+            "templateKey": item_def["templateKey"],
+            "fields":      self._build_fields(row, item_def.get("fields", []), base_col=base_col),
+        }
+
+    def _normalize_package_rows(self, row: dict, columns_def: dict) -> list:
+        """
+        Convert a spec row into a list of normalized package row dicts, one per
+        package column defined in columns.packages.  Reserved double-underscore keys
+        prevent collision with real column names:
+
+            __column__    : package column name
+            __value__     : value of that column in the spec row
+            __base_value__: value of the base column in the spec row
+        """
+        base_col = columns_def.get("base", "")
+        packages = columns_def.get("packages", [])
+        base_val = str(row.get(base_col, "")).strip()
+        return [
+            {
+                "__column__":     pkg_col,
+                "__value__":      str(row.get(pkg_col, "")).strip(),
+                "__base_value__": base_val,
+            }
+            for pkg_col in packages
+        ]
+
+    def _split_rows_into_groups(self, rows: list, group_filter_expr: str) -> list:
+        """
+        Apply the JQ group-filter expression to the full rows array, locate the
         matching header rows by position, then pair each header with the slice of
         rows that follow it until the next header.
 
         Returns: list of (group_row, [spec_rows_in_this_group])
         """
         try:
-            matched = jq.first(group_source_expr, rows) or []
+            matched = jq.first(group_filter_expr, rows) or []
         except Exception as e:
-            write_log("error", f"JQ failed on group source '{group_source_expr}': {e}")
+            write_log("error", f"JQ failed on group filter '{group_filter_expr}': {e}")
             return []
 
         matched_keys = {str(r.get("Packages", "")) for r in matched}
@@ -261,128 +371,51 @@ class Transformers:
             result.append((rows[idx], rows[idx + 1 : next_idx]))
         return result
 
-    def _select_spec_rows(self, rows: list) -> list:
-        """
-        Keep only genuine spec rows:
-          - Non-empty Packages label
-          - At least one non-empty value in a column other than Packages
-        """
-        result = []
-        for row in rows:
-            if not str(row.get("Packages", "")).strip():
-                continue
-            if all(str(v).strip() == "" for k, v in row.items() if k != "Packages"):
-                continue
-            result.append(row)
-        return result
-
-    def _build_group_item(self, group_row: dict, spec_rows: list,
-                          group_def: dict, columns_def: dict) -> dict:
-        """Build a group item with all its spec children."""
-        children_items = []
-
-        for child_def in group_def.get("children", []):
-            source = child_def.get("source", "")
-
-            if source == "SCOPED_BETWEEN_GROUPS":
-                filtered = self._select_spec_rows(spec_rows)
-            else:
-                try:
-                    filtered = jq.first(source, spec_rows) or []
-                except Exception as e:
-                    write_log("warning", f"JQ error on child source '{source}': {e}")
-                    filtered = []
-
-            for row in filtered:
-                children_items.append(self._build_spec_item(row, child_def, columns_def))
-
-        return {
-            "name":        self._resolve_item_name(group_row, group_def),
-            "templateKey": group_def["templateKey"],
-            "fields":      self._build_fields(group_row, group_def.get("fields", [])),
-            "children":    children_items,
-        }
-
-    def _build_spec_item(self, row: dict, item_def: dict, columns_def: dict) -> dict:
-        """Build a single spec item plus its packageSpec children."""
-        base_col = columns_def.get("base", "")
-        item = {
-            "name":        self._resolve_item_name(row, item_def),
-            "templateKey": item_def["templateKey"],
-            "fields":      self._build_fields(row, item_def.get("fields", []), base_col=base_col),
-        }
-        pkg_def = item_def.get("package_children")
-        if pkg_def:
-            children = self._build_package_children(row, pkg_def, columns_def)
-            if children:
-                item["children"] = children
-        return item
-
-    def _build_package_children(self, row: dict, pkg_def: dict,
-                                 columns_def: dict) -> list:
-        """
-        Generate packageSpec children for a spec row.
-        With only_when_differs=true, skip packages whose value equals the base value.
-        """
-        base_col     = columns_def.get("base", "")
-        all_packages = columns_def.get("packages", [])
-        only_differs = pkg_def.get("only_when_differs", False)
-        base_val     = str(row.get(base_col, "")).strip()
-
-        children = []
-        for pkg_col in all_packages:
-            if pkg_col == base_col:
-                continue
-            pkg_val = str(row.get(pkg_col, "")).strip()
-            if only_differs and pkg_val == base_val:
-                continue
-            if not pkg_val:
-                continue
-            children.append({
-                "name":        pkg_col,
-                "templateKey": pkg_def["templateKey"],
-                "fields":      self._build_fields(
-                    row, pkg_def["fields"], base_col=base_col, pkg_col=pkg_col
-                ),
-            })
-        return children
-
     # =========================================================================
     # FIELD / NAME RESOLVERS
     # =========================================================================
 
-    def _build_fields(self, row: dict, fields_def: list,
-                      base_col: str = None, pkg_col: str = None) -> list:
+    def _build_fields(self, row: dict, fields_def: list, base_col: str = None) -> list:
         """Build the fields list for an item from its field definitions."""
         return [
             {
                 "name":  f["name"],
                 "value": self._resolve_field_value(
-                    row, f["from_field"], f.get("from_pattern"),
-                    base_col=base_col, pkg_col=pkg_col
+                    row, f["value"], f.get("transform"), base_col=base_col
                 ),
             }
             for f in fields_def
         ]
 
-    def _resolve_field_value(self, row: dict, from_field: str,
-                              from_pattern: str = None,
-                              base_col: str = None,
-                              pkg_col: str = None) -> str:
-        """Resolve a field value, handling special tokens and regex patterns."""
-        if from_field == "__base_column__":
-            val = str(row.get(base_col or "", ""))
-        elif from_field == "__package_column__":
-            val = str(row.get(pkg_col or "", ""))
-        else:
-            val = str(row.get(from_field, ""))
+    def _resolve_field_value(self, row: dict, value: str,
+                              transform: str = None,
+                              base_col: str = None) -> str:
+        """
+        Resolve a field value, handling special tokens and regex patterns.
 
-        if from_pattern:
-            val = self._extract_pattern(val, from_pattern)
+        For normalized package rows (produced by _normalize_package_rows):
+            __base_column__   → row['__base_value__']
+            __package_column__→ row['__value__']
+        For regular row dicts:
+            __base_column__   → row[base_col]
+        """
+        if value == "__base_column__":
+            val = str(row.get("__base_value__", row.get(base_col or "", "")))
+        elif value == "__package_column__":
+            val = str(row.get("__value__", ""))
+        else:
+            val = str(row.get(value, ""))
+
+        if transform:
+            val = self._extract_pattern(val, transform)
         return val
 
     def _resolve_item_name(self, row: dict, item_def: dict) -> str:
-        """Resolve the display name for an item from the YAML definition."""
+        """
+        Resolve the display name for an item from the YAML definition.
+        For normalized package rows with no explicit name strategy,
+        defaults to the package column name stored in row['__column__'].
+        """
         if item_def.get("name_static"):
             return item_def["name_static"]
 
@@ -396,6 +429,10 @@ class Transformers:
         name_slug = item_def.get("name_slug")
         if name_slug:
             return self._slugify(str(row.get(name_slug["field"], "")))
+
+        # Normalized package rows: default name is the column name
+        if "__column__" in row:
+            return row["__column__"]
 
         return "unnamed"
 

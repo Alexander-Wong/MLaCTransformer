@@ -12,18 +12,22 @@
 #
 # ITEM DEFINITION KEYS:
 #   templateKey       : sitecore template alias (must exist in sitecore_config.templates)
-#   source            : JQ expression on the rows array  |  "SCOPED_BETWEEN_GROUPS"
+#   filter            : JQ expression applied to the context list for this level
+#   source_input      : "rows" (default) | "packages"
+#                         rows     — source JQ operates on the inherited row context
+#                         packages — source JQ operates on normalized package rows derived
+#                                    from columns.packages and the parent spec row:
+#                                    [{__column__, __value__, __base_value__}, ...]
 #   name_from         : { field, pattern }  — extract name via regex capture group
 #   name_static       : literal string name
 #   name_slug         : { field }  — slugify field value for use as node name
-#   fields            : list of { name, from_field, from_pattern }
-#   children          : nested item definitions (recursive)
-#   package_children  : { templateKey, only_when_differs, fields }
-#                       auto-generates one child per package column that differs from base
+#   only_when_differs : (packages only) skip package rows where __value__ == __base_value__
+#   fields            : list of { name, value, transform }
+#   children          : nested item definitions — fully recursive, N levels deep
 #
-# SPECIAL from_field TOKENS:
-#   __base_column__     resolves to the value in the declared base column
-#   __package_column__  resolves to the current package column (inside package_children)
+# SPECIAL value TOKENS:
+#   __base_column__     resolves to the base column value (or __base_value__ in package rows)
+#   __package_column__  resolves to __value__ in normalized package rows
 # =============================================================================
 
 # ---------------------------------------------------------------------------
@@ -74,39 +78,45 @@ sheets:
     items:
       - templateKey: "group"
         # Group header rows are identified by " > " in the Packages field
-        source: '[.[] | select(.Packages | test(" > "))]'
+        filter: '[.[] | select(.Packages | test(" > "))]'
         name_from:
           field: "Packages"
           pattern: "^(.+?)\\s*>"
         fields:
           - name: "Group Label"
-            from_field: "Packages"
-            from_pattern: "^(.+?)\\s*>"
+            value: "Packages"
+            transform: "^(.+?)\\s*>"
           - name: "Group Description"
-            from_field: "Packages"
-            from_pattern: ">\\s*(.+?)\\s*$"
+            value: "Packages"
+            transform: ">\\s*(.+?)\\s*$"
 
         children:
           - templateKey: "spec"
-            # SCOPED_BETWEEN_GROUPS: processor automatically slices rows that
-            # fall between this group header and the next one
-            source: "SCOPED_BETWEEN_GROUPS"
+            # JQ applied to the rows already scoped between group headers.
+            # .[0] is the group header row itself; .[1:] are the spec rows.
+            # Select all spec rows with a non-empty Packages label.
+            filter: '[.[1:] | .[] | select(.Packages != "")]'
             name_from:
               field: "Packages"
               pattern: "^(.+)$"
             fields:
               - name: "Specification Label"
-                from_field: "Packages"
+                value: "Packages"
               - name: "Specification Value"
-                from_field: "__base_column__"
+                value: "__base_column__"
 
-            # Auto-generate one packageSpec child per trim that differs from base
-            package_children:
-              templateKey: "packageSpec"
-              only_when_differs: true
-              fields:
-                - name: "Specification Value"
-                  from_field: "__package_column__"
+            # Auto-generate one packageSpec child per trim that differs from base.
+            # source_input: "packages" — source JQ is applied to normalized package rows
+            # ({__column__, __value__, __base_value__}), one per entry in columns.packages.
+            # .[1:] skips index 0 (the base column "Integra").
+            children:
+              - templateKey: "packageSpec"
+                source_input: "packages"
+                filter: '.[1:]'
+                only_when_differs: true
+                fields:
+                  - name: "Specification Value"
+                    value: "__package_column__"
 
 
   # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -138,16 +148,16 @@ sheets:
   #         pattern: "^(.+)$"
   #       fields:
   #         - name: "Revision Date"
-  #           from_field: "Revision Date"
+  #           value: "Revision Date"
   #         - name: "Feature"
-  #           from_field: "Feature"
+  #           value: "Feature"
   #         - name: "Change"
-  #           from_field: "Contents of Change"
+  #           value: "Contents of Change"
   #         - name: "Affected Trims"
-  #           from_field: "Affected Trims"
+  #           value: "Affected Trims"
   #         - name: "Before"
-  #           from_field: "Before"
+  #           value: "Before"
   #         - name: "After"
-  #           from_field: "After"
+  #           value: "After"
   #         - name: "Notes"
-  #           from_field: "Notes"
+  #           value: "Notes"
