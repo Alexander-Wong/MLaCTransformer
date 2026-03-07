@@ -419,11 +419,11 @@ class Transformers:
         if item_def.get("name_static"):
             return item_def["name_static"]
 
-        name_from = item_def.get("name_from")
-        if name_from:
-            val = str(row.get(name_from["field"], "")).strip()
-            if name_from.get("pattern"):
-                val = self._extract_pattern(val, name_from["pattern"])
+        name = item_def.get("name")
+        if name:
+            val = str(row.get(name["field"], "")).strip()
+            if name.get("transform"):
+                val = self._extract_pattern(val, name["transform"])
             return val
 
         name_slug = item_def.get("name_slug")

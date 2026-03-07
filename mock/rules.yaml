@@ -79,9 +79,9 @@ sheets:
       - templateKey: "group"
         # Group header rows are identified by " > " in the Packages field
         filter: '[.[] | select(.Packages | test(" > "))]'
-        name_from:
+        name:
           field: "Packages"
-          pattern: "^(.+?)\\s*>"
+          transform: "^(.+?)\\s*>"
         fields:
           - name: "Group Label"
             value: "Packages"
@@ -92,23 +92,15 @@ sheets:
 
         children:
           - templateKey: "spec"
-            # JQ applied to the rows already scoped between group headers.
-            # .[0] is the group header row itself; .[1:] are the spec rows.
-            # Select all spec rows with a non-empty Packages label.
             filter: '[.[1:] | .[] | select(.Packages != "")]'
-            name_from:
+            name:
               field: "Packages"
-              pattern: "^(.+)$"
+              transform: "^(.+)$"
             fields:
               - name: "Specification Label"
                 value: "Packages"
               - name: "Specification Value"
                 value: "__base_column__"
-
-            # Auto-generate one packageSpec child per trim that differs from base.
-            # source_input: "packages" — source JQ is applied to normalized package rows
-            # ({__column__, __value__, __base_value__}), one per entry in columns.packages.
-            # .[1:] skips index 0 (the base column "Integra").
             children:
               - templateKey: "packageSpec"
                 source_input: "packages"
