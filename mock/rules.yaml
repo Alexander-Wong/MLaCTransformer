@@ -7,27 +7,26 @@
 #   sheets:                  one entry per sheet; each is a full transform definition
 #     <sheet_name>:
 #       sitecore_config:     sitecore target settings for this sheet's output
-#       columns:             maps logical "base" and "packages" to actual column headers
+#       columns:             maps logical "base" and "variants" to actual column headers
 #       items:               declarative hierarchy to build (group → spec → packageSpec)
 #
 # ITEM DEFINITION KEYS:
 #   templateKey       : sitecore template alias (must exist in sitecore_config.templates)
 #   filter            : JQ expression applied to the context list for this level
-#   source_input      : "rows" (default) | "packages"
-#                         rows     — source JQ operates on the inherited row context
-#                         packages — source JQ operates on normalized package rows derived
-#                                    from columns.packages and the parent spec row:
-#                                    [{__column__, __value__, __base_value__}, ...]
+#   expand_variants   : false (default) | true
+#                         false — JQ operates on the inherited row context
+#                         true  — JQ operates on normalized variant rows derived
+#                                 from columns.variants and the parent spec row:
+#                                 [{__column__, __value__, __base_value__}, ...]
 #   name_from         : { field, pattern }  — extract name via regex capture group
 #   name_static       : literal string name
 #   name_slug         : { field }  — slugify field value for use as node name
-#   only_when_differs : (packages only) skip package rows where __value__ == __base_value__
 #   fields            : list of { name, value, transform }
 #   children          : nested item definitions — fully recursive, N levels deep
 #
 # SPECIAL value TOKENS:
-#   __base_column__     resolves to the base column value (or __base_value__ in package rows)
-#   __package_column__  resolves to __value__ in normalized package rows
+#   $base     resolves to the value of columns.base for the current row
+#   $variant  resolves to the value of the current variant column (only when expand_variants: true)
 # =============================================================================
 
 # ---------------------------------------------------------------------------
@@ -40,14 +39,7 @@ input:
     # - updates                 # uncomment to also process the updates sheet
 
 
-# ---------------------------------------------------------------------------
-# sheets — one entry per sheet declared in input.sheets
-# ---------------------------------------------------------------------------
 sheets:
-
-  # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-  # SHEET: specs
-  # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   specs:
 
     sitecore_config:
@@ -64,11 +56,9 @@ sheets:
         packageSpec: "{050DEEDD-ADD5-4C8A-A75F-312D5C070D6D}"
         modal:       "{7A770BDC-69A8-4566-9CB1-E4D037BB8A8B}"
 
-    # Column definitions — map logical roles to actual input column headers
     columns:
       base: "Integra"
-      packages:
-        - "Integra"
+      variants:
         - "A-Spec® Package"
         - "A-Spec® w/Technology Package CVT"
         - "A-Spec® w/Technology Package 6MT"
@@ -77,38 +67,32 @@ sheets:
     # Hierarchy to build
     items:
       - templateKey: "group"
-        # Group header rows are identified by " > " in the Packages field
         filter: '[.[] | select(.Packages | test(" > "))]'
         name:
           field: "Packages"
-          transform: "^(.+?)\\s*>"
         fields:
           - name: "Group Label"
             value: "Packages"
-            transform: "^(.+?)\\s*>"
           - name: "Group Description"
             value: "Packages"
-            transform: ">\\s*(.+?)\\s*$"
-
+     
         children:
           - templateKey: "spec"
             filter: '[.[1:] | .[] | select(.Packages != "")]'
             name:
               field: "Packages"
-              transform: "^(.+)$"
             fields:
               - name: "Specification Label"
                 value: "Packages"
               - name: "Specification Value"
-                value: "__base_column__"
+                value: $base
             children:
               - templateKey: "packageSpec"
-                source_input: "packages"
-                filter: '.[1:]'
-                only_when_differs: true
+                expand_variants: true
+                filter: '.'
                 fields:
                   - name: "Specification Value"
-                    value: "__package_column__"
+                    value: $variant
 
 
   # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

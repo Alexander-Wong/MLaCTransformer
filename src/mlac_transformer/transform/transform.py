@@ -37,15 +37,14 @@ class Transformers:
                     filter: '<JQ on scoped rows>'
                     children:                          # N levels deep
                       - templateKey: "packageSpec"
-                        source_input: "packages"       # JQ on normalized package rows
-                        filter: '<JQ on package rows>'
-                        only_when_differs: true
+                        expand_variants: true          # JQ on normalized variant rows
+                        filter: '<JQ on variant rows>'
                         fields: [...]
 
-    source_input values:
-        "rows"     (default) — source JQ operates on the inherited row list context
-        "packages" — source JQ operates on [{__column__, __value__, __base_value__}, ...]
-                     derived from columns.packages and the parent spec row
+    expand_variants:
+        false (default) — JQ operates on the inherited row list context
+        true            — JQ operates on [{__column__, __value__, __base_value__}, ...]
+                          derived from columns.variants and the parent spec row
 
     Usage:
         t = Transformers(raw_file="path/input.json", yaml_file="path/transform.yaml")
@@ -242,7 +241,7 @@ class Transformers:
             items_def  : Item definition list from the YAML.
             columns_def: The columns block from the sheet definition.
             parent_row : The parent item's row dict, used when a child declares
-                         source_input='packages' to generate normalized package rows.
+                         expand_variants=true to generate normalized variant rows.
         """
         output = []
         for item_def in items_def:
@@ -252,11 +251,11 @@ class Transformers:
     def _build_item_list(self, context: list, item_def: dict,
                          columns_def: dict, parent_row: dict = None) -> list:
         """Process one item definition and return the list of built items."""
-        filter_expr  = item_def.get("filter", "")
-        source_input = item_def.get("source_input", "rows")
+        filter_expr     = item_def.get("filter", "")
+        expand_variants = item_def.get("expand_variants", False)
 
-        # Determine the JQ input based on source_input
-        if source_input == "packages":
+        # Determine the JQ input based on expand_variants flag
+        if expand_variants:
             jq_input = self._normalize_package_rows(parent_row or {}, columns_def)
         else:
             jq_input = context
@@ -272,14 +271,6 @@ class Transformers:
             write_log("warning", f"JQ error on filter '{filter_expr}': {e}")
             selected = []
 
-        # For package rows: apply only_when_differs and empty-value filter
-        if source_input == "packages":
-            only_differs = item_def.get("only_when_differs", False)
-            selected = [
-                r for r in selected
-                if r.get("__value__")
-                and (not only_differs or r.get("__value__") != r.get("__base_value__"))
-            ]
 
         result = []
         for row in selected:
@@ -325,8 +316,8 @@ class Transformers:
 
     def _normalize_package_rows(self, row: dict, columns_def: dict) -> list:
         """
-        Convert a spec row into a list of normalized package row dicts, one per
-        package column defined in columns.packages.  Reserved double-underscore keys
+        Convert a spec row into a list of normalized variant row dicts, one per
+        variant column defined in columns.variants.  Reserved double-underscore keys
         prevent collision with real column names:
 
             __column__    : package column name
@@ -334,7 +325,7 @@ class Transformers:
             __base_value__: value of the base column in the spec row
         """
         base_col = columns_def.get("base", "")
-        packages = columns_def.get("packages", [])
+        packages = columns_def.get("variants", [])
         base_val = str(row.get(base_col, "")).strip()
         return [
             {
@@ -393,15 +384,13 @@ class Transformers:
         """
         Resolve a field value, handling special tokens and regex patterns.
 
-        For normalized package rows (produced by _normalize_package_rows):
-            __base_column__   → row['__base_value__']
-            __package_column__→ row['__value__']
-        For regular row dicts:
-            __base_column__   → row[base_col]
+        Special tokens:
+            $base    → row[base_col]  (or row['__base_value__'] inside expand_variants)
+            $variant → row['__value__']  (only meaningful inside expand_variants)
         """
-        if value == "__base_column__":
+        if value == "$base":
             val = str(row.get("__base_value__", row.get(base_col or "", "")))
-        elif value == "__package_column__":
+        elif value == "$variant":
             val = str(row.get("__value__", ""))
         else:
             val = str(row.get(value, ""))
