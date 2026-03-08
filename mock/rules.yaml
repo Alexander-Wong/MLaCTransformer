@@ -67,7 +67,7 @@ sheets:
     # Hierarchy to build
     items:
       - templateKey: "group"
-        filter: '[.[] | select(.Packages | test(" > "))]'
+        filter: 'map(select(.Packages | contains(" > ")))'
         name:
           field: "Packages"
         fields:
@@ -78,7 +78,7 @@ sheets:
      
         children:
           - templateKey: "spec"
-            filter: '[.[1:] | .[] | select(.Packages != "")]'
+            filter: '.[1:] | map(select(.Packages != ""))'
             name:
               field: "Packages"
             fields:
