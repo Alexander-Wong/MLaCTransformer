@@ -34,9 +34,9 @@
 # ---------------------------------------------------------------------------
 input:
   workbook_key: "workbook"      # top-level key in the JSON that holds the workbook
-  sheets:                       # sheet names to process (order matters for output)
+  sheets:                       # sheet names to process
     - specs
-    # - updates                 # uncomment to also process the updates sheet
+    - updates
 
 
 sheets:
@@ -57,6 +57,7 @@ sheets:
         modal:       "{7A770BDC-69A8-4566-9CB1-E4D037BB8A8B}"
 
     columns:
+      label: "Packages"
       base: "Integra"
       variants:
         - "A-Spec® Package"
@@ -95,45 +96,39 @@ sheets:
                     value: $variant
 
 
-  # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-  # SHEET: updates  (example — shows how a second sheet with different
-  #                  structure is declared independently)
-  # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-  # updates:
-  #
-  #   sitecore_config:
-  #     modelPath: "/sitecore/content/acura-platform/resources/components/vehicles/2025/integra/page-content/specs/updates"
-  #     backupName: "updates-DD-MM-YYYY-HH-MM-SS"
-  #     backupPath: "../"
-  #     backupCount: 5
-  #     type: "list"
-  #     operation: "create"
-  #     templates:
-  #       folder:  "{4A2D8611-DA48-4664-B794-62F97513D8DB}"
-  #       entry:   "{SOME-TEMPLATE-GUID-HERE}"
-  #
-  #   columns:
-  #     base: "Revision Date"
-  #     packages: []
-  #
-  #   items:
-  #     - templateKey: "entry"
-  #       source: '[.[] | select(.Feature != null and .Feature != "" and .Feature != "\u00a0")]'
-  #       name_from:
-  #         field: "Feature"
-  #         pattern: "^(.+)$"
-  #       fields:
-  #         - name: "Revision Date"
-  #           value: "Revision Date"
-  #         - name: "Feature"
-  #           value: "Feature"
-  #         - name: "Change"
-  #           value: "Contents of Change"
-  #         - name: "Affected Trims"
-  #           value: "Affected Trims"
-  #         - name: "Before"
-  #           value: "Before"
-  #         - name: "After"
-  #           value: "After"
-  #         - name: "Notes"
-  #           value: "Notes"
+
+  updates:
+    sitecore_config:
+      modelPath: "/sitecore/content/acura-platform/resources/components/vehicles/2025/integra/page-content/specs/updates"
+      backupName: "updates-DD-MM-YYYY-HH-MM-SS"
+      backupPath: "../"
+      backupCount: 5
+      type: "list"
+      operation: "create"
+      templates:
+        entry:   "{SOME-TEMPLATE-GUID-HERE}"
+ 
+    columns:
+      label: "Feature"
+      base: "Revision Date"
+      variants: []
+
+    items:
+      - templateKey: "entry"
+        filter: '[.[] | select(.Feature != null and .Feature != "" and .Feature != "\u00a0")]'
+        name: "Record"
+        fields:
+          - name: "Revision Date"
+            value: "Revision Date"
+          - name: "Feature"
+            value: "Feature"
+          - name: "Change"
+            value: "Contents of Change"
+          - name: "Affected Trims"
+            value: "Affected Trims"
+          - name: "Before"
+            value: "Before"
+          - name: "After"
+            value: "After"
+          - name: "Notes"
+            value: "Notes"

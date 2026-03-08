@@ -291,7 +291,7 @@ class Transformers:
     def _build_group_items(self, rows: list, filter_expr: str,
                            item_def: dict, columns_def: dict) -> list:
         """Handle group-level items with row scoping via _split_rows_into_groups."""
-        groups = self._split_rows_into_groups(rows, filter_expr)
+        groups = self._split_rows_into_groups(rows, filter_expr, columns_def)
         result = []
         for group_row, spec_rows in groups:
             item = self._build_single_item(group_row, item_def, columns_def)
@@ -336,7 +336,8 @@ class Transformers:
             for pkg_col in packages
         ]
 
-    def _split_rows_into_groups(self, rows: list, group_filter_expr: str) -> list:
+    def _split_rows_into_groups(self, rows: list, group_filter_expr: str,
+                               columns_def: dict) -> list:
         """
         Apply the JQ group-filter expression to the full rows array, locate the
         matching header rows by position, then pair each header with the slice of
@@ -350,10 +351,11 @@ class Transformers:
             write_log("error", f"JQ failed on group filter '{group_filter_expr}': {e}")
             return []
 
-        matched_keys = {str(r.get("Packages", "")) for r in matched}
+        label_col = columns_def.get("label", "")
+        matched_keys = {str(r.get(label_col, "")) for r in matched}
         group_indices = [
             i for i, row in enumerate(rows)
-            if str(row.get("Packages", "")) in matched_keys
+            if str(row.get(label_col, "")) in matched_keys
         ]
 
         result = []
@@ -410,6 +412,8 @@ class Transformers:
 
         name = item_def.get("name")
         if name:
+            if isinstance(name, str):
+                return name
             val = str(row.get(name["field"], "")).strip()
             if name.get("transform"):
                 val = self._extract_pattern(val, name["transform"])
