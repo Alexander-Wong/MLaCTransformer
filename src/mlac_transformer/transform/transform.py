@@ -272,13 +272,23 @@ class Transformers:
             selected = []
 
 
+        children_filter_expr = item_def.get("children_filter")
+
         result = []
         for row in selected:
             item = self._build_single_item(row, item_def, columns_def)
             children_def = item_def.get("children", [])
             if children_def:
+                if children_filter_expr:
+                    try:
+                        child_context = jq.first(children_filter_expr, jq_input) or []
+                    except Exception as e:
+                        write_log("warning", f"JQ error on children_filter '{children_filter_expr}': {e}")
+                        child_context = [row]
+                else:
+                    child_context = [row]
                 children = self._build_items(
-                    context=[row],
+                    context=child_context,
                     items_def=children_def,
                     columns_def=columns_def,
                     parent_row=row,
