@@ -36,8 +36,6 @@ class ExcelToJson:
             try:
                 # Ignore 'Unnamed' columns
                 df = df.loc[:, ~df.columns.astype(str).str.startswith('Unnamed')]
-                # Drop entirely empty rows and columns
-                df = df.dropna(how='all').dropna(axis=1, how='all')
                 # Replace NaN with empty strings to avoid 'null' in JSON
                 df_cleaned = df.fillna("")
                 # Convert to records format
