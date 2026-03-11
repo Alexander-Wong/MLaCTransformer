@@ -1,5 +1,4 @@
 import json
-import os
 import re
 import jq
 import yaml
@@ -272,30 +271,52 @@ class Transformers:
             selected = []
 
 
+        scope_children       = item_def.get("scope_children", False)
         children_filter_expr = item_def.get("children_filter")
 
         result = []
-        for row in selected:
-            item = self._build_single_item(row, item_def, columns_def)
-            children_def = item_def.get("children", [])
-            if children_def:
-                if children_filter_expr:
-                    try:
-                        child_context = jq.first(children_filter_expr, jq_input) or []
-                    except Exception as e:
-                        write_log("warning", f"JQ error on children_filter '{children_filter_expr}': {e}")
+        if scope_children:
+            # Slice the parent context between consecutive selected rows so each
+            # item only sees the rows that belong to it (same logic as groups).
+            positions = self._find_row_positions(selected, jq_input)
+            for idx, row in enumerate(selected):
+                item = self._build_single_item(row, item_def, columns_def)
+                children_def = item_def.get("children", [])
+                if children_def:
+                    pos_start = positions[idx]
+                    pos_end   = positions[idx + 1] if idx + 1 < len(positions) else len(jq_input)
+                    child_context = jq_input[pos_start:pos_end]
+                    children = self._build_items(
+                        context=child_context,
+                        items_def=children_def,
+                        columns_def=columns_def,
+                        parent_row=row,
+                    )
+                    if children:
+                        item["children"] = children
+                result.append(item)
+        else:
+            for row in selected:
+                item = self._build_single_item(row, item_def, columns_def)
+                children_def = item_def.get("children", [])
+                if children_def:
+                    if children_filter_expr:
+                        try:
+                            child_context = jq.first(children_filter_expr, jq_input) or []
+                        except Exception as e:
+                            write_log("warning", f"JQ error on children_filter '{children_filter_expr}': {e}")
+                            child_context = [row]
+                    else:
                         child_context = [row]
-                else:
-                    child_context = [row]
-                children = self._build_items(
-                    context=child_context,
-                    items_def=children_def,
-                    columns_def=columns_def,
-                    parent_row=row,
-                )
-                if children:
-                    item["children"] = children
-            result.append(item)
+                    children = self._build_items(
+                        context=child_context,
+                        items_def=children_def,
+                        columns_def=columns_def,
+                        parent_row=row,
+                    )
+                    if children:
+                        item["children"] = children
+                result.append(item)
         return result
 
     def _build_group_items(self, rows: list, filter_expr: str,
@@ -380,21 +401,24 @@ class Transformers:
 
     def _build_fields(self, row: dict, fields_def: list, base_col: str = None) -> list:
         """Build the fields list for an item from its field definitions."""
-        return [
-            {
-                "name":  f["name"],
-                "value": self._resolve_field_value(
-                    row, f["value"], f.get("transform"), base_col=base_col
-                ),
-            }
-            for f in fields_def
-        ]
+        result = []
+        for f in fields_def:
+            resolved_value = self._resolve_field_value(
+                row, f["value"], f.get("transform"), base_col=base_col
+            )
+            if not resolved_value.strip() and "default" in f:
+                resolved_value = f["default"]
+            field = {"name": f["name"], "value": resolved_value}
+            if "type" in f:
+                field["type"] = self._resolve_field_type(resolved_value, f["type"])
+            result.append(field)
+        return result
 
     def _resolve_field_value(self, row: dict, value: str,
                               transform: str = None,
                               base_col: str = None) -> str:
         """
-        Resolve a field value, handling special tokens and regex patterns.
+        Resolve a field value, handling special tokens and regex/JQ transforms.
 
         Special tokens:
             $base    → row[base_col]  (or row['__base_value__'] inside expand_variants)
@@ -408,7 +432,7 @@ class Transformers:
             val = str(row.get(value, ""))
 
         if transform:
-            val = self._extract_pattern(val, transform)
+            val = self._apply_transform(val, transform)
         return val
 
     def _resolve_item_name(self, row: dict, item_def: dict) -> str:
@@ -426,7 +450,7 @@ class Transformers:
                 return name
             val = str(row.get(name["field"], "")).strip()
             if name.get("transform"):
-                val = self._extract_pattern(val, name["transform"])
+                val = self._apply_transform(val, name["transform"])
             return val
 
         name_slug = item_def.get("name_slug")
@@ -442,6 +466,82 @@ class Transformers:
     # =========================================================================
     # STATIC HELPERS
     # =========================================================================
+
+    def _resolve_field_type(self, value: str, type_name: str) -> str:
+        """Dispatch to the named type resolver function. Returns 'undefined' if unknown."""
+        resolver = self._TYPE_RESOLVERS.get(type_name)
+        if resolver is None:
+            write_log("warning", f"Unknown type resolver: '{type_name}'")
+            return "undefined"
+        return resolver(value)
+
+    @staticmethod
+    def _get_type(value: str) -> str:
+        """
+        Infer a semantic type from a resolved string value.
+
+        Returns:
+            "number"  — numeric value (int or float, including negatives)
+            "boolean" — availability / yes-no value
+            "string"  — any other non-empty text
+            "undefined" — empty or whitespace-only
+        """
+        v = str(value).strip()
+        if not v:
+            return "undefined"
+
+        # Number: optional sign, digits, optional decimal, optional trailing non-numeric
+        # e.g. "150", "2.0", "-40", "1,234" (with comma-stripping)
+        if re.fullmatch(r"-?\d[\d,]*(\.\d+)?", v.replace(",", "")):
+            return "number"
+
+        # Boolean / availability markers (case-insensitive)
+        _BOOL_VALUES = {"standard", "optional", "yes", "no", "true", "false",
+                        "–", "-", "n/a", "✓", "✗"}
+        if v.lower() in _BOOL_VALUES:
+            return "boolean"
+
+        return "string"
+
+    _TYPE_RESOLVERS: dict = {
+        "getType": _get_type.__func__,
+    }
+
+    @staticmethod
+    def _find_row_positions(selected: list, context: list) -> list:
+        """Return the index in context of each row in selected (sequential scan)."""
+        positions = []
+        search_start = 0
+        for sel in selected:
+            for i in range(search_start, len(context)):
+                if context[i] == sel:
+                    positions.append(i)
+                    search_start = i + 1
+                    break
+        return positions
+
+    @staticmethod
+    def _apply_transform(value: str, transform: str) -> str:
+        """
+        Dispatch a transform expression to JQ or regex based on prefix.
+
+        Prefix rules:
+            'jq: <expression>'  → execute expression as a JQ program on the scalar string
+            '<pattern>'         → treat as a regex; return first capture group
+        """
+        if transform.startswith("jq:"):
+            return Transformers._apply_jq_transform(value, transform[3:].strip())
+        return Transformers._extract_pattern(value, transform)
+
+    @staticmethod
+    def _apply_jq_transform(value: str, expression: str) -> str:
+        """Apply a JQ expression to a scalar string value. Returns original on error."""
+        try:
+            result = jq.first(expression, value)
+            return str(result).strip() if result is not None else ""
+        except Exception as e:
+            write_log("warning", f"JQ transform error on expression '{expression}': {e}")
+            return str(value).strip()
 
     @staticmethod
     def _extract_pattern(value: str, pattern: str) -> str:

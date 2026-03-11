@@ -14,7 +14,17 @@
       "Bash(echo \"Exit: $?\")",
       "Bash(python3 transformer.py mock/input.xlsx mock/rules.yaml)",
       "Bash(git -C /Users/alexanderwong/Documents/VML/MLaCTransformer log --oneline -15)",
-      "Bash(git -C /Users/alexanderwong/Documents/VML/MLaCTransformer diff HEAD)"
+      "Bash(git -C /Users/alexanderwong/Documents/VML/MLaCTransformer diff HEAD)",
+      "Bash(python transformer.py mock/input.xlsx mock/rules.yaml)",
+      "Bash(find /Users/alexanderwong/Documents/VML/MLaCTransformer -type d -not -path */.*)",
+      "Bash(xargs cat:*)",
+      "Bash(python -m mlac_transformer)",
+      "Bash(python3 -m mlac_transformer)",
+      "Bash(python3 -c \"from src.mlac_transformer.transform.transform import Transformer; t = Transformer\\(''mock/rules.yaml'', ''mock/input.xlsx''\\); t.run\\(\\)\")",
+      "Bash(ls *.sh *.py)",
+      "Bash(poetry run:*)",
+      "Bash(ls *.py)",
+      "Bash(python3 transformer.py)"
     ]
   }
 }

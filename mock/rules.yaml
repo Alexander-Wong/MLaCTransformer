@@ -13,16 +13,22 @@
 # ITEM DEFINITION KEYS:
 #   templateKey       : sitecore template alias (must exist in sitecore_config.templates)
 #   filter            : JQ expression applied to the context list for this level
+#   scope_children    : false (default) | true
+#                         true — slice the parent context between consecutive matched rows
+#                                so each item only sees the rows that belong to it
 #   expand_variants   : false (default) | true
-#                         false — JQ operates on the inherited row context
 #                         true  — JQ operates on normalized variant rows derived
 #                                 from columns.variants and the parent spec row:
 #                                 [{__column__, __value__, __base_value__}, ...]
-#   name_from         : { field, pattern }  — extract name via regex capture group
+#   name              : { field, transform }  — resolve name from a row field
 #   name_static       : literal string name
-#   name_slug         : { field }  — slugify field value for use as node name
 #   fields            : list of { name, value, transform }
 #   children          : nested item definitions — fully recursive, N levels deep
+#
+# TRANSFORM SYNTAX:
+#   'jq: <expression>'  — JQ program applied to the resolved scalar string value
+#                         supports piping: 'jq: ascii_upcase | ltrimstr(" ")'
+#   '<regex>'           — regex pattern; returns first capture group (default, no prefix)
 #
 # SPECIAL value TOKENS:
 #   $base     resolves to the value of columns.base for the current row
@@ -50,7 +56,7 @@ sheets:
       type: "table"
       operation: "create"
       templates:
-        folder:      "{4A2D8611-DA48-4664-B794-62F97513D8DB}"
+        folder:      "{A08042BD-64BF-4270-A1A7-08BA74F05944}"
         group:       "{87169817-97AA-409F-8324-342CF34E7055}"
         spec:        "{6EEC54AA-3E5D-4F71-AB97-3253ED1E6D38}"
         packageSpec: "{050DEEDD-ADD5-4C8A-A75F-312D5C070D6D}"
@@ -65,70 +71,92 @@ sheets:
         - "A-Spec® w/Technology Package 6MT"
         - "Type S"
 
-    # Hierarchy to build
+    # Hierarchy: group → spec(category) → spec(item) → packageSpec(variant)
     items:
       - templateKey: "group"
-        filter: 'map(select(.Packages | contains(" > ")))'
+        filter: 'map(select(.Packages | test(" > ")))'
         name:
           field: "Packages"
+          transform: 'jq: split(" > ") | .[0]'
+          type: "getType"
         fields:
           - name: "Group Label"
             value: "Packages"
+            transform: 'jq: split(" > ") | .[0]'
+            type: "getType"
           - name: "Group Description"
             value: "Packages"
-     
+            transform: 'jq: split(" > ") | .[1]'
+            type: "getType"
+
+
         children:
           - templateKey: "spec"
-            filter: '.[1:] | map(select(.Packages != ""))'
+            filter: 'map(select(.Category != ""))'
+            scope_children: true
             name:
-              field: "Packages"
+              field: "Category"
             fields:
               - name: "Specification Label"
-                value: "Packages"
-              - name: "Specification Value"
-                value: $base
+                value: "Category"
+                type: "getType"
+
             children:
-              - templateKey: "packageSpec"
-                expand_variants: true
-                filter: '.'
+              - templateKey: "spec"
+                filter: 'map(select(.Item != ""))'
+                name:
+                  field: "Item"
                 fields:
+                  - name: "Specification Label"
+                    value: "Item"
                   - name: "Specification Value"
-                    value: $variant
+                    value: $base
+                    type: "getType"
+
+
+                children:
+                  - templateKey: "packageSpec"
+                    expand_variants: true
+                    filter: '.'
+                    fields:
+                      - name: "Specification Value"
+                        value: $variant
+                        type: "getType"
 
 
 
-  updates:
-    sitecore_config:
-      modelPath: "/sitecore/content/acura-platform/resources/components/vehicles/2025/integra/page-content/specs/updates"
-      backupName: "updates-DD-MM-YYYY-HH-MM-SS"
-      backupPath: "../"
-      backupCount: 5
-      type: "list"
-      operation: "create"
-      templates:
-        entry:   "{SOME-TEMPLATE-GUID-HERE}"
- 
-    columns:
-      label: "Feature"
-      base: "Revision Date"
-      variants: []
+  # updates:
+  #   sitecore_config:
+  #     modelPath: "/sitecore/content/acura-platform/resources/components/vehicles/2025/integra/page-content/specs/updates"
+  #     backupName: "updates-DD-MM-YYYY-HH-MM-SS"
+  #     backupPath: "../"
+  #     backupCount: 5
+  #     type: "list"
+  #     operation: "create"
+  #     templates:
+  #       entry:   "{SOME-TEMPLATE-GUID-HERE}"
 
-    items:
-      - templateKey: "entry"
-        filter: '[.[] | select(.Feature != null and .Feature != "" and .Feature != "\u00a0")]'
-        name: "Record"
-        fields:
-          - name: "Revision Date"
-            value: "Revision Date"
-          - name: "Feature"
-            value: "Feature"
-          - name: "Change"
-            value: "Contents of Change"
-          - name: "Affected Trims"
-            value: "Affected Trims"
-          - name: "Before"
-            value: "Before"
-          - name: "After"
-            value: "After"
-          - name: "Notes"
-            value: "Notes"
+  #   columns:
+  #     label: "Feature"
+  #     base: "Revision Date"
+  #     variants: []
+
+  #   items:
+  #     - templateKey: "entry"
+  #       filter: '[.[] | select(.Feature != null and .Feature != "" and .Feature != "\u00a0")]'
+  #       name: "Record"
+  #       fields:
+  #         - name: "Revision Date"
+  #           value: "Revision Date"
+  #         - name: "Feature"
+  #           value: "Feature"
+  #         - name: "Change"
+  #           value: "Contents of Change"
+  #         - name: "Affected Trims"
+  #           value: "Affected Trims"
+  #         - name: "Before"
+  #           value: "Before"
+  #         - name: "After"
+  #           value: "After"
+  #         - name: "Notes"
+  #           value: "Notes"
