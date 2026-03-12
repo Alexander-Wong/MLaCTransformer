@@ -403,16 +403,50 @@ class Transformers:
         """Build the fields list for an item from its field definitions."""
         result = []
         for f in fields_def:
-            resolved_value = self._resolve_field_value(
-                row, f["value"], f.get("transform"), base_col=base_col
-            )
-            if not resolved_value.strip() and "default" in f:
-                resolved_value = f["default"]
-            field = {"name": f["name"], "value": resolved_value}
-            if "type" in f:
-                field["type"] = self._resolve_field_type(resolved_value, f["type"])
+            if f.get("computed"):
+                field = self._resolve_computed_field(row, f)
+            else:
+                resolved_value = self._resolve_field_value(
+                    row, f["value"], f.get("transform"), base_col=base_col
+                )
+                if not resolved_value.strip() and "default" in f:
+                    resolved_value = f["default"]
+                field = {"name": f["name"], "value": resolved_value}
+                if "type" in f:
+                    field["type"] = self._resolve_field_type(resolved_value, f["type"])
             result.append(field)
         return result
+
+    def _resolve_computed_field(self, row: dict, field_def: dict) -> dict:
+        """
+        Evaluate a computed field against the current row.
+
+        Expects:
+            computed: true
+            condition: 'jq: <expression>'   — evaluated against the full row dict
+            value:      <result when true>  — literal or column reference
+            else_value: <result when false> — literal or column reference (optional)
+            type:       <type resolver>     — optional
+        """
+        condition = field_def.get("condition", "")
+        if not condition:
+            write_log("warning", f"Computed field '{field_def['name']}' has no condition — skipping")
+            return {"name": field_def["name"], "value": ""}
+
+        try:
+            result = jq.first(condition[3:].strip() if condition.startswith("jq:") else condition, row)
+            matched = bool(result)
+        except Exception as e:
+            write_log("warning", f"Computed field '{field_def['name']}' condition error: {e}")
+            matched = False
+
+        raw_value = field_def["value"] if matched else field_def.get("else_value", "")
+        resolved_value = str(raw_value) if not isinstance(raw_value, str) else raw_value
+
+        field = {"name": field_def["name"], "value": resolved_value}
+        if "type" in field_def:
+            field["type"] = self._resolve_field_type(resolved_value, field_def["type"])
+        return field
 
     def _resolve_field_value(self, row: dict, value: str,
                               transform: str = None,

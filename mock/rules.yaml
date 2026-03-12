@@ -88,6 +88,12 @@ sheets:
             value: "Packages"
             transform: 'jq: split(" > ") | .[1]'
             type: "getType"
+          - name: "IsPriceHeader"
+            computed: true
+            condition: 'jq: .Packages | contains("Pricing")'
+            value: true
+            else_value: false
+            type: "getType"  
 
 
         children:
@@ -122,6 +128,13 @@ sheets:
                       - name: "Specification Value"
                         value: $variant
                         type: "getType"
+                      - name: "IsPremium"
+                        computed: true
+                        condition: 'jq: .__column__ == "Type S" and .__value__ == "$XX,XXX*\n[DE5G9TEW]"'
+                        value: true
+                        else_value: false
+                        type: "getType"
+                        
 
 
 
