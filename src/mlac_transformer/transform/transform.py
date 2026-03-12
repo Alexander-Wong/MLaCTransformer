@@ -195,7 +195,7 @@ class Transformers:
         Returns a sitecore output dict: { sitecoreConfig, items }.
         """
         sitecore_config = self._build_sitecore_config(sheet_spec.get("sitecore_config", {}))
-        columns_def     = sheet_spec.get("source_structure", {})
+        columns_def     = sheet_spec.get("columns", {})
         items_def       = sheet_spec.get("items", [])
 
         output_items = self._build_items(flat_rows, items_def, columns_def)
@@ -253,19 +253,9 @@ class Transformers:
         filter_expr     = item_def.get("filter", "")
         expand_variants = item_def.get("expand_variants", False)
 
-        # Determine the JQ input based on expand_variants flag.
-        # If parent_row has variant column data use it directly (classic behaviour).
-        # Otherwise fall back to normalizing every row in context so that
-        # expand_variants works without a spec(item) intermediate level.
+        # Determine the JQ input based on expand_variants flag
         if expand_variants:
-            variants = self._resolve_column_names(columns_def)
-            if parent_row and any(parent_row.get(col) for col in variants):
-                jq_input = self._normalize_package_rows(parent_row, columns_def)
-            else:
-                normalized = []
-                for row in context:
-                    normalized.extend(self._normalize_package_rows(row, columns_def))
-                jq_input = normalized
+            jq_input = self._normalize_package_rows(parent_row or {}, columns_def)
         else:
             jq_input = context
 
@@ -348,7 +338,7 @@ class Transformers:
 
     def _build_single_item(self, row: dict, item_def: dict, columns_def: dict) -> dict:
         """Build one output item dict (name, templateKey, fields) without recursing."""
-        base_col = columns_def.get("base_column", "")
+        base_col = columns_def.get("base", "")
         return {
             "name":        self._resolve_item_name(row, item_def),
             "templateKey": item_def["templateKey"],
@@ -365,8 +355,8 @@ class Transformers:
             __value__     : value of that column in the spec row
             __base_value__: value of the base column in the spec row
         """
-        base_col = columns_def.get("base_column", "")
-        packages = self._resolve_column_names(columns_def)
+        base_col = columns_def.get("base", "")
+        packages = columns_def.get("variants", [])
         base_val = str(row.get(base_col, "")).strip()
         return [
             {
@@ -392,7 +382,7 @@ class Transformers:
             write_log("error", f"JQ failed on group filter '{group_filter_expr}': {e}")
             return []
 
-        label_col = columns_def.get("column_label", "")
+        label_col = columns_def.get("label", "")
         matched_keys = {str(r.get(label_col, "")) for r in matched}
         group_indices = [
             i for i, row in enumerate(rows)
@@ -518,17 +508,6 @@ class Transformers:
             write_log("warning", f"Unknown type resolver: '{type_name}'")
             return "undefined"
         return resolver(value)
-
-    @staticmethod
-    def _resolve_column_names(columns_def: dict) -> list:
-        """
-        Extract column name strings from column_data entries.
-        Each entry can be a plain string or a dict with a 'column_label' key.
-        """
-        return [
-            col["column_label"] if isinstance(col, dict) else col
-            for col in columns_def.get("column_data", [])
-        ]
 
     @staticmethod
     def _get_type(value: str) -> str:
