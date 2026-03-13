@@ -74,7 +74,6 @@ sheets:
         - "A-Spec w/Technology (6MT)"
         - "Type S"
 
-    # Hierarchy: group → spec(category) → spec(item) → packageSpec(variant)
     items:
       - templateKey: "group"
         filter: 'map(select(.Packages | test(" > ")))'
