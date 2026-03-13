@@ -530,7 +530,7 @@ class Transformers:
             return "number"
 
         # Boolean / availability markers (case-insensitive)
-        _BOOL_VALUES = {"yes", "no", "true", "false", "✓", "✗"}
+        _BOOL_VALUES = {True, False, "yes", "no", "true", "false", "✓", "✗"}
         if v.lower() in _BOOL_VALUES:
             return "boolean"
 
