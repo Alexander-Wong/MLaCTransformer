@@ -66,9 +66,9 @@ sheets:
       label: "Packages"
       base: "Integra"
       variants:
-        - "A-Spec® Package"
-        - "A-Spec® w/Technology Package CVT"
-        - "A-Spec® w/Technology Package 6MT"
+        - "A-Spec"
+        - "A-Spec w/Technology (CVT)"
+        - "A-Spec w/Technology (6MT)"
         - "Type S"
 
     # Hierarchy: group → spec(category) → spec(item) → packageSpec(variant)
@@ -126,7 +126,6 @@ sheets:
                       - name: "Specification Value"
                         value: "__value__"
                         type: "getType"
-                        default: "N/A"
                       - name: "Vehicle Package"
                         value: "__column__"
                         type: "getType"
