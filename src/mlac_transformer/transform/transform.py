@@ -45,6 +45,17 @@ class Transformers:
         true            — JQ operates on [{__column__, __value__, __base_value__}, ...]
                           derived from columns.variants and the parent spec row
 
+    dynamic_fields:
+        Generates fields dynamically from the rows in scope rather than from
+        static field definitions.  Useful for long/vertical Excel formats where
+        field names live in a column instead of as column headers.
+            name_from : column whose value becomes the field name
+            value_from: column whose value becomes the field value
+            filter    : optional JQ expression to pre-filter the scoped rows
+            type      : optional type resolver (e.g. "getType")
+        When scope_children is true, scoped rows are the positional slice owned
+        by the item.  Otherwise the scope is the single matched row.
+
     Usage:
         t = Transformers(raw_file="path/input.json", yaml_file="path/transform.yaml")
         output_path = t.run()                      # process all sheets
@@ -280,14 +291,14 @@ class Transformers:
             # item only sees the rows that belong to it (same logic as groups).
             positions = self._find_row_positions(selected, jq_input)
             for idx, row in enumerate(selected):
-                item = self._build_single_item(row, item_def, columns_def)
+                pos_start   = positions[idx]
+                pos_end     = positions[idx + 1] if idx + 1 < len(positions) else len(jq_input)
+                scoped_rows = jq_input[pos_start:pos_end]
+                item = self._build_single_item(row, item_def, columns_def, scoped_rows=scoped_rows)
                 children_def = item_def.get("children", [])
                 if children_def:
-                    pos_start = positions[idx]
-                    pos_end   = positions[idx + 1] if idx + 1 < len(positions) else len(jq_input)
-                    child_context = jq_input[pos_start:pos_end]
                     children = self._build_items(
-                        context=child_context,
+                        context=scoped_rows,
                         items_def=children_def,
                         columns_def=columns_def,
                         parent_row=row,
@@ -297,7 +308,7 @@ class Transformers:
                 result.append(item)
         else:
             for row in selected:
-                item = self._build_single_item(row, item_def, columns_def)
+                item = self._build_single_item(row, item_def, columns_def, scoped_rows=[row])
                 children_def = item_def.get("children", [])
                 if children_def:
                     if children_filter_expr:
@@ -336,13 +347,17 @@ class Transformers:
             result.append(item)
         return result
 
-    def _build_single_item(self, row: dict, item_def: dict, columns_def: dict) -> dict:
+    def _build_single_item(self, row: dict, item_def: dict, columns_def: dict,
+                           scoped_rows: list = None) -> dict:
         """Build one output item dict (name, templateKey, fields) without recursing."""
         base_col = columns_def.get("base", "")
+        fields = self._build_fields(row, item_def.get("fields", []), base_col=base_col)
+        if item_def.get("dynamic_fields") is not None:
+            fields += self._build_dynamic_fields(scoped_rows or [row], item_def["dynamic_fields"], row=row)
         return {
             "name":        self._resolve_item_name(row, item_def),
             "templateKey": item_def["templateKey"],
-            "fields":      self._build_fields(row, item_def.get("fields", []), base_col=base_col),
+            "fields":      fields,
         }
 
     def _normalize_package_rows(self, row: dict, columns_def: dict) -> list:
@@ -414,6 +429,43 @@ class Transformers:
                 field = {"name": f["name"], "value": resolved_value}
                 if "type" in f:
                     field["type"] = self._resolve_field_type(resolved_value, f["type"])
+            result.append(field)
+        return result
+
+    def _build_dynamic_fields(self, rows: list, dynamic_def: dict, row: dict = None) -> list:
+        """
+        Build fields from a list of rows where each row contributes one field.
+        The field name comes from name_from column and value from value_from column.
+
+        If dynamic_def contains a 'source' key, the rows are read from row[source]
+        (a list embedded in the current row by a JQ filter) instead of scoped_rows.
+        This avoids relying on scope_children and _find_row_positions.
+        """
+        name_col    = dynamic_def.get("name_from", "")
+        value_col   = dynamic_def.get("value_from", "")
+        filter_expr = dynamic_def.get("filter")
+        type_name   = dynamic_def.get("type")
+        source_key  = dynamic_def.get("source")
+
+        if source_key and row is not None:
+            rows = row.get(source_key) or []
+
+        if filter_expr:
+            try:
+                rows = jq.first(filter_expr, rows) or []
+            except Exception as e:
+                write_log("warning", f"JQ error on dynamic_fields filter '{filter_expr}': {e}")
+                rows = []
+
+        result = []
+        for row in rows:
+            name  = str(row.get(name_col,  "")).strip()
+            value = str(row.get(value_col, "")).strip()
+            if not name:
+                continue
+            field = {"name": name, "value": value}
+            if type_name:
+                field["type"] = self._resolve_field_type(value, type_name)
             result.append(field)
         return result
 

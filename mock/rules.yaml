@@ -43,6 +43,9 @@ input:
   sheets:                       # sheet names to process
     - specs
     - updates
+    - oneToMany
+    - explode
+    - schema
 
 
 sheets:
@@ -131,41 +134,114 @@ sheets:
                         type: "getType"
 
 
+  updates:
+    sitecore_config:
+      modelPath: "/sitecore/content/acura-platform/resources/components/vehicles/2025/integra/page-content/specs/updates"
+      backupName: "updates-DD-MM-YYYY-HH-MM-SS"
+      backupPath: "../"
+      backupCount: 5
+      type: "list"
+      operation: "create"
+      templates:
+        row:   "{SOME-TEMPLATE-GUID-HERE}"
+
+    columns:
+      label: "Feature"
+      base: "Revision Date"
+      variants: []
+
+    items:
+      - templateKey: "row"
+        filter: '[.[] | select(.Feature != null and .Feature != "" and .Feature != "\u00a0")]'
+        name: "Feature"
+        fields:
+          - name: "Revision Date"
+            value: "Revision Date"
+          - name: "Feature"
+            value: "Feature"
+          - name: "Change"
+            value: "Contents of Change"
+          - name: "Affected Trims"
+            value: "Affected Trims"
+          - name: "Before"
+            value: "Before"
+          - name: "After"
+            value: "After"
+          - name: "Notes"
+            value: "Notes"
+
+  oneToMany:
+    sitecore_config:
+      modelPath: "/sitecore/content/..."
+      backupName: "components"
+      templates:
+        component: "{component-template-guid}"
+        relation: "{relation-template-guid}"
+
+    columns:
+      label: "Componente"
+      base: "Componente"
+      variants:
+        - "Servicio Asociado"
+        - "Base de Datos"
+        - "Frontend"
+
+    items:
+      - templateKey: "component"
+        filter: 'map(select(.Componente != ""))'
+        name:
+          field: "Componente"
+        fields:
+          - name: "Tipo"
+            value: "Tipo"
+          - name: "Version"
+            value: "Versión"
+        children:
+          - templateKey: "relation"
+            expand_variants: true
+            filter: 'map(select(.__value__ == "X"))'
 
 
+  explode:
+    sitecore_config:
+      modelPath: "/sitecore/content/..."
+      backupName: "components"
+      templates:
+        component: "{component-template-guid}"
 
-  # updates:
-  #   sitecore_config:
-  #     modelPath: "/sitecore/content/acura-platform/resources/components/vehicles/2025/integra/page-content/specs/updates"
-  #     backupName: "updates-DD-MM-YYYY-HH-MM-SS"
-  #     backupPath: "../"
-  #     backupCount: 5
-  #     type: "list"
-  #     operation: "create"
-  #     templates:
-  #       entry:   "{SOME-TEMPLATE-GUID-HERE}"
+    columns:
+      label: "Componente"
+      base: "Componente"
+      variants: []
 
-  #   columns:
-  #     label: "Feature"
-  #     base: "Revision Date"
-  #     variants: []
+    items:
+      - templateKey: "component"
+        filter: '[.[] | . as $row | ($row.Keys | split("|") | map(ltrimstr(" ") | rtrimstr(" ")) | .[]) | {Componente: $row.Componente, Tipo: $row.Tipo, "Versión": $row["Versión"], Key: .}]'
+        name:
+          field: "Componente"
+        fields:
+          - name: "Tipo"
+            value: "Tipo"
+          - name: "Version"
+            value: "Versión"
+          - name: "Key"
+            value: "Key"
 
-  #   items:
-  #     - templateKey: "entry"
-  #       filter: '[.[] | select(.Feature != null and .Feature != "" and .Feature != "\u00a0")]'
-  #       name: "Record"
-  #       fields:
-  #         - name: "Revision Date"
-  #           value: "Revision Date"
-  #         - name: "Feature"
-  #           value: "Feature"
-  #         - name: "Change"
-  #           value: "Contents of Change"
-  #         - name: "Affected Trims"
-  #           value: "Affected Trims"
-  #         - name: "Before"
-  #           value: "Before"
-  #         - name: "After"
-  #           value: "After"
-  #         - name: "Notes"
-  #           value: "Notes"
+  schema:
+    sitecore_config:
+        modelPath: "/sitecore/content/..."
+        backupName: "components"
+        templates:
+          component: "{component-template-guid}"
+
+    items:
+      - templateKey: "component"
+        filter: '[group_by(.Component)[] | select(length > 0 and .[0].Component != "") | .[0] + {"__scope__": .}]'
+        name:
+          field: "Component"
+        dynamic_fields:
+          source: "__scope__"
+          name_from: "Attribute Name"
+          value_from: "Value"
+          filter: 'map(select(."Attribute Name" != ""))'
+          type: "getType"
