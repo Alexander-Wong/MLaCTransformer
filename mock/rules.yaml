@@ -56,7 +56,7 @@ sheets:
       type: "table"
       operation: "create"
       templates:
-        folder:      "{A08042BD-64BF-4270-A1A7-08BA74F05944}"
+        folder:      "{E594C7E0-5616-4734-BFA0-B043778D11E4}"
         group:       "{87169817-97AA-409F-8324-342CF34E7055}"
         spec:        "{6EEC54AA-3E5D-4F71-AB97-3253ED1E6D38}"
         packageSpec: "{050DEEDD-ADD5-4C8A-A75F-312D5C070D6D}"
@@ -82,12 +82,18 @@ sheets:
         fields:
           - name: "Group Label"
             value: "Packages"
-            transform: 'jq: split(" > ") | .[0]'
+            transform: 'jq: split(" > ") | .[0] | ascii_upcase'
             type: "getType"
           - name: "Group Description"
             value: "Packages"
-            transform: 'jq: split(" > ") | .[1]'
+            transform: 'jq: split(" > ") | .[1] | ascii_upcase'
             type: "getType"
+          - name: "IsPriceHeader"
+            computed: true
+            condition: 'jq: .Packages | contains("Pricing")'
+            value: true
+            else_value: false
+            type: "getType"  
 
         children:
           - templateKey: "spec"
@@ -99,7 +105,7 @@ sheets:
               - name: "Specification Label"
                 value: "Category"
                 type: "getType"
-
+     
             children:
               - templateKey: "spec"
                 filter: 'map(select(.Item != ""))'
@@ -111,15 +117,20 @@ sheets:
                   - name: "Specification Value"
                     value: $base
                     type: "getType"
-
+               
                 children:
                   - templateKey: "packageSpec"
                     expand_variants: true
                     filter: '.'
                     fields:
                       - name: "Specification Value"
-                        value: $variant
+                        value: "__value__"
                         type: "getType"
+                        default: "N/A"
+                      - name: "Vehicle Package"
+                        value: "__column__"
+                        type: "getType"
+
 
 
 

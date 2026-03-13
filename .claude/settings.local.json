@@ -25,7 +25,8 @@
       "Bash(poetry run:*)",
       "Bash(ls *.py)",
       "Bash(python3 transformer.py)",
-      "Bash(git log:*)"
+      "Bash(git log:*)",
+      "Bash(xargs ls:*)"
     ]
   }
 }
