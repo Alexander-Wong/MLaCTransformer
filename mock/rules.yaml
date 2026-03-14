@@ -7,7 +7,7 @@
 #   sheets:                  one entry per sheet; each is a full transform definition
 #     <sheet_name>:
 #       sitecore_config:     sitecore target settings for this sheet's output
-#       columns:             maps logical "base" and "variants" to actual column headers
+#       source_structure:    maps column_label, column_base and column_data to actual column headers
 #       items:               declarative hierarchy to build (group → spec → packageSpec)
 #
 # ITEM DEFINITION KEYS:
@@ -18,7 +18,7 @@
 #                                so each item only sees the rows that belong to it
 #   expand_variants   : false (default) | true
 #                         true  — JQ operates on normalized variant rows derived
-#                                 from columns.variants and the parent spec row:
+#                                 from source_structure.column_data and the parent spec row:
 #                                 [{__column__, __value__, __base_value__}, ...]
 #   name              : { field, transform }  — resolve name from a row field
 #   name_static       : literal string name
@@ -31,7 +31,7 @@
 #   '<regex>'           — regex pattern; returns first capture group (default, no prefix)
 #
 # SPECIAL value TOKENS:
-#   $base     resolves to the value of columns.base for the current row
+#   $base     resolves to the value of source_structure.column_base for the current row
 #   $variant  resolves to the value of the current variant column (only when expand_variants: true)
 # =============================================================================
 
@@ -65,10 +65,10 @@ sheets:
         packageSpec: "{050DEEDD-ADD5-4C8A-A75F-312D5C070D6D}"
         modal:       "{7A770BDC-69A8-4566-9CB1-E4D037BB8A8B}"
 
-    columns:
-      label: "Packages"
-      base: "Integra"
-      variants:
+    source_structure:
+      column_label: "Packages"
+      column_base: "Integra"
+      column_data:
         - "A-Spec"
         - "A-Spec w/Technology (CVT)"
         - "A-Spec w/Technology (6MT)"
@@ -144,10 +144,10 @@ sheets:
       templates:
         row:   "{SOME-TEMPLATE-GUID-HERE}"
 
-    columns:
-      label: "Feature"
-      base: "Revision Date"
-      variants: []
+    source_structure:
+      column_label: "Feature"
+      column_base: "Revision Date"
+      column_data: []
 
     items:
       - templateKey: "row"
@@ -177,10 +177,10 @@ sheets:
         component: "{component-template-guid}"
         relation: "{relation-template-guid}"
 
-    columns:
-      label: "Componente"
-      base: "Componente"
-      variants:
+    source_structure:
+      column_label: "Componente"
+      column_base: "Componente"
+      column_data:
         - "Servicio Asociado"
         - "Base de Datos"
         - "Frontend"
@@ -208,10 +208,10 @@ sheets:
       templates:
         component: "{component-template-guid}"
 
-    columns:
-      label: "Componente"
-      base: "Componente"
-      variants: []
+    source_structure:
+      column_label: "Componente"
+      column_base: "Componente"
+      column_data: []
 
     items:
       - templateKey: "component"

@@ -212,7 +212,7 @@ class Transformers:
         """
         self._current_sheet = sheet_name
         sitecore_config = self._build_sitecore_config(sheet_spec.get("sitecore_config", {}))
-        columns_def     = sheet_spec.get("columns", {})
+        columns_def     = sheet_spec.get("source_structure", {})
         items_def       = sheet_spec.get("items", [])
 
         output_items = self._build_items(flat_rows, items_def, columns_def)
@@ -356,7 +356,7 @@ class Transformers:
     def _build_single_item(self, row: dict, item_def: dict, columns_def: dict,
                            scoped_rows: list = None) -> dict:
         """Build one output item dict (name, templateKey, fields) without recursing."""
-        base_col = columns_def.get("base", "")
+        base_col = columns_def.get("column_base", "")
         fields = self._build_fields(row, item_def.get("fields", []), base_col=base_col)
         if item_def.get("dynamic_fields") is not None:
             fields += self._build_dynamic_fields(scoped_rows or [row], item_def["dynamic_fields"], row=row)
@@ -376,8 +376,8 @@ class Transformers:
             __value__     : value of that column in the spec row
             __base_value__: value of the base column in the spec row
         """
-        base_col = columns_def.get("base", "")
-        packages = columns_def.get("variants", [])
+        base_col = columns_def.get("column_base", "")
+        packages = columns_def.get("column_data", [])
         base_val = str(row.get(base_col, "")).strip()
         return [
             {
@@ -403,7 +403,7 @@ class Transformers:
             write_log("error", f"JQ failed on group filter '{group_filter_expr}': {e}")
             return []
 
-        label_col = columns_def.get("label", "")
+        label_col = columns_def.get("column_label", "")
         matched_keys = {str(r.get(label_col, "")) for r in matched}
         group_indices = [
             i for i, row in enumerate(rows)
