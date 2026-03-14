@@ -240,7 +240,7 @@ sheets:
           field: "Component"
         dynamic_fields:
           source: "__scope__"
+          filter: 'map(select(."Attribute Name" != ""))'
           name_from: "Attribute Name"
           value_from: "Value"
-          filter: 'map(select(."Attribute Name" != ""))'
           type: "getType"

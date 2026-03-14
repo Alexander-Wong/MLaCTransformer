@@ -26,7 +26,8 @@
       "Bash(ls *.py)",
       "Bash(python3 transformer.py)",
       "Bash(git log:*)",
-      "Bash(xargs ls:*)"
+      "Bash(xargs ls:*)",
+      "Bash(grep -E \"\\\\.\\(py|json|yaml|yml|toml\\)$\")"
     ]
   }
 }

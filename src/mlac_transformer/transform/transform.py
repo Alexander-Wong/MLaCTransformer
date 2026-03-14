@@ -8,6 +8,10 @@ from pathlib import Path
 from src.mlac_transformer.logger import write_log
 
 
+class RequiredFieldError(Exception):
+    """Raised when a field marked required: true resolves to an empty, null, or undefined value."""
+
+
 class Transformers:
     """
     ETL Stage 2 — Declarative Transform Processor (multi-sheet).
@@ -64,8 +68,9 @@ class Transformers:
     """
 
     def __init__(self, raw_file: str, yaml_file: str) -> None:
-        self.raw_file  = raw_file
-        self.yaml_file = yaml_file
+        self.raw_file      = raw_file
+        self.yaml_file     = yaml_file
+        self._current_sheet: str = ""
         today = datetime.today()
         self.output_path = (
             Path("output/transform")
@@ -205,6 +210,7 @@ class Transformers:
         Apply the sheet's YAML definition to its flat rows.
         Returns a sitecore output dict: { sitecoreConfig, items }.
         """
+        self._current_sheet = sheet_name
         sitecore_config = self._build_sitecore_config(sheet_spec.get("sitecore_config", {}))
         columns_def     = sheet_spec.get("columns", {})
         items_def       = sheet_spec.get("items", [])
@@ -426,6 +432,8 @@ class Transformers:
                 )
                 if not resolved_value.strip() and "default" in f:
                     resolved_value = f["default"]
+                if f.get("required") and not str(resolved_value).strip():
+                    self._raise_required_field_error(f, row)
                 field = {"name": f["name"], "value": resolved_value}
                 if "type" in f:
                     field["type"] = self._resolve_field_type(resolved_value, f["type"])
@@ -440,12 +448,20 @@ class Transformers:
         If dynamic_def contains a 'source' key, the rows are read from row[source]
         (a list embedded in the current row by a JQ filter) instead of scoped_rows.
         This avoids relying on scope_children and _find_row_positions.
+
+        required:        when true, every generated field must have a non-empty value
+                         (value_from column must be non-empty for every row).
+        required_fields: list of attribute names (name_from values) that must appear
+                         in the generated output with a non-empty value.
+        Both raise RequiredFieldError with the offending row included in the log.
         """
-        name_col    = dynamic_def.get("name_from", "")
-        value_col   = dynamic_def.get("value_from", "")
-        filter_expr = dynamic_def.get("filter")
-        type_name   = dynamic_def.get("type")
-        source_key  = dynamic_def.get("source")
+        name_col        = dynamic_def.get("name_from", "")
+        value_col       = dynamic_def.get("value_from", "")
+        filter_expr     = dynamic_def.get("filter")
+        type_name       = dynamic_def.get("type")
+        source_key      = dynamic_def.get("source")
+        required        = dynamic_def.get("required", False)
+        required_fields = dynamic_def.get("required_fields", [])
 
         if source_key and row is not None:
             rows = row.get(source_key) or []
@@ -458,15 +474,30 @@ class Transformers:
                 rows = []
 
         result = []
-        for row in rows:
-            name  = str(row.get(name_col,  "")).strip()
-            value = str(row.get(value_col, "")).strip()
+        for r in rows:
+            name  = str(r.get(name_col,  "")).strip()
+            value = str(r.get(value_col, "")).strip()
             if not name:
                 continue
+            if required and not value:
+                self._raise_required_field_error(
+                    {"name": name, "value_from": value_col, "required": True},
+                    r,
+                )
             field = {"name": name, "value": value}
             if type_name:
                 field["type"] = self._resolve_field_type(value, type_name)
             result.append(field)
+
+        if required_fields:
+            built = {f["name"]: f["value"] for f in result}
+            for req_name in required_fields:
+                if not str(built.get(req_name, "")).strip():
+                    self._raise_required_field_error(
+                        {"name": req_name, "required_fields": required_fields},
+                        {},
+                    )
+
         return result
 
     def _resolve_computed_field(self, row: dict, field_def: dict) -> dict:
@@ -495,6 +526,8 @@ class Transformers:
         raw_value = field_def["value"] if matched else field_def.get("else_value", "")
         resolved_value = str(raw_value) if not isinstance(raw_value, str) else raw_value
 
+        if field_def.get("required") and not str(resolved_value).strip():
+            self._raise_required_field_error(field_def, row)
         field = {"name": field_def["name"], "value": resolved_value}
         if "type" in field_def:
             field["type"] = self._resolve_field_type(resolved_value, field_def["type"])
@@ -552,6 +585,25 @@ class Transformers:
     # =========================================================================
     # STATIC HELPERS
     # =========================================================================
+
+    def _raise_required_field_error(self, field_def: dict, row: dict) -> None:
+        """
+        Log a detailed error and raise RequiredFieldError when a required field
+        resolves to an empty, null, or undefined value.
+
+        Evaluated after: value resolution, transform, default, and before type.
+        Also evaluated after computed field condition resolution.
+        """
+        field_name = field_def.get("name", "<unknown>")
+        msg = (
+            f"[REQUIRED FIELD MISSING]\n"
+            f"  Sheet      : {self._current_sheet}\n"
+            f"  Field name : {field_name}\n"
+            f"  Field def  : {field_def}\n"
+            f"  Row data   : {row}"
+        )
+        write_log("error", msg)
+        raise RequiredFieldError(msg)
 
     def _resolve_field_type(self, value: str, type_name: str) -> str:
         """Dispatch to the named type resolver function. Returns 'undefined' if unknown."""
