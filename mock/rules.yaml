@@ -65,6 +65,14 @@ sheets:
         packageSpec: "{050DEEDD-ADD5-4C8A-A75F-312D5C070D6D}"
         modal:       "{7A770BDC-69A8-4566-9CB1-E4D037BB8A8B}"
 
+    relations:
+      package:
+        target_path: "/sitecore/content/acura-platform/resources/components/vehicles/2026/integra/build-and-price-components/trims/packages"
+        lookup:
+          target_lookup_field: "packageName"    
+          target_key_field: "id"        
+      
+                    
     source_structure:
       column_label: "Packages"
       column_base: "Integra"
@@ -90,14 +98,26 @@ sheets:
             value: "Packages"
             transform: 'jq: split(" > ") | .[1] | ascii_upcase'
             type: "getType"
-          - name: "IsPriceHeader"
-            computed: true
-            condition: 'jq: .Packages.value | contains("Pricing")'
-            value: true
-            else_value: false
-            type: "getType"  
-
+  
         children:
+          - templateKey: "modal"
+            filter: '[.[0] | select(.Packages.annotation != null and .Packages.annotation != "")]'
+            name_slug:
+              field: "Packages"
+            fields:
+              - name: "Headline"
+                value: "$annotation:Packages"
+                transform: 'Headline:\s*(.+?)(?:\n|$)'
+                type: "getType"
+              - name: "Description"
+                value: "$annotation:Packages"
+                transform: 'Description:\s*([\s\S]+?)(?:\nImage:|$)'
+                type: "getType"
+              - name: "Image"
+                value: "$annotation:Packages"
+                transform: 'Image:\s*(.+)'
+                type: "getType"
+
           - templateKey: "spec"
             filter: 'map(select(.Category.value != ""))'
             scope_children: true
@@ -109,6 +129,24 @@ sheets:
                 type: "getType"
      
             children:
+              - templateKey: "modal"
+                filter: '[.[0] | select(.Category.annotation != null and .Category.annotation != "")]'
+                name_slug:
+                  field: "Category"
+                fields:
+                  - name: "Headline"
+                    value: "$annotation:Category"
+                    transform: 'Headline:\s*(.+?)(?:\n|$)'
+                    type: "getType"
+                  - name: "Description"
+                    value: "$annotation:Category"
+                    transform: 'Description:\s*([\s\S]+?)(?:\nImage:|$)'
+                    type: "getType"
+                  - name: "Image"
+                    value: "$annotation:Category"
+                    transform: 'Image:\s*(.+)'
+                    type: "getType"
+
               - templateKey: "spec"
                 filter: 'map(select(.Item.value != ""))'
                 name:
@@ -130,7 +168,8 @@ sheets:
                         type: "getType"
                       - name: "Vehicle Package"
                         value: "__column__"
-                        type: "getType"
+                        relationKey: "package"
+                        type: "lookup"
 
 
   updates:

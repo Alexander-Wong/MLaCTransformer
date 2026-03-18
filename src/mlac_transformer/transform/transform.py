@@ -212,6 +212,7 @@ class Transformers:
         """
         self._current_sheet = sheet_name
         sitecore_config = self._build_sitecore_config(sheet_spec.get("sitecore_config", {}))
+        relations       = sheet_spec.get("relations", {})
         columns_def     = sheet_spec.get("source_structure", {})
         items_def       = sheet_spec.get("items", [])
 
@@ -230,7 +231,7 @@ class Transformers:
             f"groups={groups_n}  specs={specs_n}  packageSpecs={pkg_n}"
         )
 
-        return {"sitecoreConfig": sitecore_config, "items": output_items}
+        return {"sitecoreConfig": sitecore_config, "relations": relations, "items": output_items}
 
     def _build_sitecore_config(self, raw_cfg: dict) -> dict:
         return {
@@ -437,6 +438,8 @@ class Transformers:
                 field = {"name": f["name"], "value": resolved_value}
                 if "type" in f:
                     field["type"] = self._resolve_field_type(resolved_value, f["type"])
+                if "relationKey" in f:
+                    field["relationKey"] = f["relationKey"]
             result.append(field)
         return result
 
@@ -547,6 +550,10 @@ class Transformers:
             val = str(row["__base_value__"]) if "__base_value__" in row else self._cell_value(row, base_col or "")
         elif value == "$variant":
             val = str(row.get("__value__", ""))
+        elif value.startswith("$annotation:"):
+            col = value[12:]
+            v = row.get(col, {})
+            val = str(v.get("annotation", "")) if isinstance(v, dict) else ""
         else:
             val = self._cell_value(row, value)
 
@@ -606,11 +613,14 @@ class Transformers:
         raise RequiredFieldError(msg)
 
     def _resolve_field_type(self, value: str, type_name: str) -> str:
-        """Dispatch to the named type resolver function. Returns 'undefined' if unknown."""
+        """
+        Dispatch to the named type resolver function.
+        If type_name matches a resolver (e.g. 'getType'), the resolver runs.
+        Otherwise type_name is treated as a literal string (e.g. 'lookup', 'RichText').
+        """
         resolver = self._TYPE_RESOLVERS.get(type_name)
         if resolver is None:
-            write_log("warning", f"Unknown type resolver: '{type_name}'")
-            return "undefined"
+            return type_name
         return resolver(value)
 
     @staticmethod
