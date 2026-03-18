@@ -76,7 +76,7 @@ sheets:
 
     items:
       - templateKey: "group"
-        filter: 'map(select(.Packages | test(" > ")))'
+        filter: 'map(select(.Packages.value | test(" > ")))'
         name:
           field: "Packages"
           transform: 'jq: split(" > ") | .[0]'
@@ -92,14 +92,14 @@ sheets:
             type: "getType"
           - name: "IsPriceHeader"
             computed: true
-            condition: 'jq: .Packages | contains("Pricing")'
+            condition: 'jq: .Packages.value | contains("Pricing")'
             value: true
             else_value: false
             type: "getType"  
 
         children:
           - templateKey: "spec"
-            filter: 'map(select(.Category != ""))'
+            filter: 'map(select(.Category.value != ""))'
             scope_children: true
             name:
               field: "Category"
@@ -110,7 +110,7 @@ sheets:
      
             children:
               - templateKey: "spec"
-                filter: 'map(select(.Item != ""))'
+                filter: 'map(select(.Item.value != ""))'
                 name:
                   field: "Item"
                 fields:
@@ -151,7 +151,7 @@ sheets:
 
     items:
       - templateKey: "row"
-        filter: '[.[] | select(.Feature != null and .Feature != "" and .Feature != "\u00a0")]'
+        filter: '[.[] | select(.Feature.value != null and .Feature.value != "" and .Feature.value != "\u00a0")]'
         name: "Feature"
         fields:
           - name: "Revision Date"
@@ -187,7 +187,7 @@ sheets:
 
     items:
       - templateKey: "component"
-        filter: 'map(select(.Componente != ""))'
+        filter: 'map(select(.Componente.value != ""))'
         name:
           field: "Componente"
         fields:
@@ -215,7 +215,7 @@ sheets:
 
     items:
       - templateKey: "component"
-        filter: '[.[] | . as $row | ($row.Keys | split("|") | map(ltrimstr(" ") | rtrimstr(" ")) | .[]) | {Componente: $row.Componente, Tipo: $row.Tipo, "Versión": $row["Versión"], Key: .}]'
+        filter: '[.[] | . as $row | ($row.Keys.value | split("|") | map(ltrimstr(" ") | rtrimstr(" ")) | .[]) | {Componente: $row.Componente, Tipo: $row.Tipo, "Versión": $row["Versión"], Key: .}]'
         name:
           field: "Componente"
         fields:
@@ -235,12 +235,12 @@ sheets:
 
     items:
       - templateKey: "component"
-        filter: '[group_by(.Component)[] | select(length > 0 and .[0].Component != "") | .[0] + {"__scope__": .}]'
+        filter: '[group_by(.Component.value)[] | select(length > 0 and .[0].Component.value != "") | .[0] + {"__scope__": .}]'
         name:
           field: "Component"
         dynamic_fields:
           source: "__scope__"
-          filter: 'map(select(."Attribute Name" != ""))'
+          filter: 'map(select(."Attribute Name".value != ""))'
           name_from: "Attribute Name"
           value_from: "Value"
           type: "getType"

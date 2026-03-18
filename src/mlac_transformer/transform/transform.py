@@ -378,11 +378,11 @@ class Transformers:
         """
         base_col = columns_def.get("column_base", "")
         packages = columns_def.get("column_data", [])
-        base_val = str(row.get(base_col, "")).strip()
+        base_val = self._cell_value(row, base_col).strip()
         return [
             {
                 "__column__":     pkg_col,
-                "__value__":      str(row.get(pkg_col, "")).strip(),
+                "__value__":      self._cell_value(row, pkg_col).strip(),
                 "__base_value__": base_val,
             }
             for pkg_col in packages
@@ -404,10 +404,10 @@ class Transformers:
             return []
 
         label_col = columns_def.get("column_label", "")
-        matched_keys = {str(r.get(label_col, "")) for r in matched}
+        matched_keys = {self._cell_value(r, label_col) for r in matched}
         group_indices = [
             i for i, row in enumerate(rows)
-            if str(row.get(label_col, "")) in matched_keys
+            if self._cell_value(row, label_col) in matched_keys
         ]
 
         result = []
@@ -475,8 +475,8 @@ class Transformers:
 
         result = []
         for r in rows:
-            name  = str(r.get(name_col,  "")).strip()
-            value = str(r.get(value_col, "")).strip()
+            name  = self._cell_value(r, name_col).strip()
+            value = self._cell_value(r, value_col).strip()
             if not name:
                 continue
             if required and not value:
@@ -544,11 +544,11 @@ class Transformers:
             $variant → row['__value__']  (only meaningful inside expand_variants)
         """
         if value == "$base":
-            val = str(row.get("__base_value__", row.get(base_col or "", "")))
+            val = str(row["__base_value__"]) if "__base_value__" in row else self._cell_value(row, base_col or "")
         elif value == "$variant":
             val = str(row.get("__value__", ""))
         else:
-            val = str(row.get(value, ""))
+            val = self._cell_value(row, value)
 
         if transform:
             val = self._apply_transform(val, transform)
@@ -567,14 +567,14 @@ class Transformers:
         if name:
             if isinstance(name, str):
                 return name
-            val = str(row.get(name["field"], "")).strip()
+            val = self._cell_value(row, name["field"]).strip()
             if name.get("transform"):
                 val = self._apply_transform(val, name["transform"])
             return val
 
         name_slug = item_def.get("name_slug")
         if name_slug:
-            return self._slugify(str(row.get(name_slug["field"], "")))
+            return self._slugify(self._cell_value(row, name_slug["field"]))
 
         # Normalized package rows: default name is the column name
         if "__column__" in row:
@@ -643,6 +643,12 @@ class Transformers:
     _TYPE_RESOLVERS: dict = {
         "getType": _get_type.__func__,
     }
+
+    @staticmethod
+    def _cell_value(row: dict, col: str) -> str:
+        """Extract the string value from a cell object {"value": ...} or plain string."""
+        v = row.get(col, "")
+        return str(v.get("value", "")) if isinstance(v, dict) else str(v)
 
     @staticmethod
     def _find_row_positions(selected: list, context: list) -> list:
