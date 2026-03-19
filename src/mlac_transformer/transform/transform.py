@@ -358,6 +358,8 @@ class Transformers:
                            scoped_rows: list = None) -> dict:
         """Build one output item dict (name, templateKey, fields) without recursing."""
         base_col = columns_def.get("column_base", "")
+        if "__base_cell__" not in row:
+            row = {**row, "__base_cell__": row.get(base_col, {})}
         fields = self._build_fields(row, item_def.get("fields", []), base_col=base_col)
         if item_def.get("dynamic_fields") is not None:
             fields += self._build_dynamic_fields(scoped_rows or [row], item_def["dynamic_fields"], row=row)
@@ -374,17 +376,16 @@ class Transformers:
         prevent collision with real column names:
 
             __column__    : package column name
-            __value__     : value of that column in the spec row
-            __base_value__: value of the base column in the spec row
+            __cell__      : full cell object of the variant column in the spec row
+            __base_cell__ : full cell object of the base column in the spec row
         """
         base_col = columns_def.get("column_base", "")
         packages = columns_def.get("column_data", [])
-        base_val = self._cell_value(row, base_col).strip()
         return [
             {
-                "__column__":     pkg_col,
-                "__value__":      self._cell_value(row, pkg_col).strip(),
-                "__base_value__": base_val,
+                "__column__":    pkg_col,
+                "__cell__":      row.get(pkg_col, {}),
+                "__base_cell__": row.get(base_col, {}),
             }
             for pkg_col in packages
         ]
@@ -426,7 +427,7 @@ class Transformers:
         result = []
         for f in fields_def:
             if f.get("computed"):
-                field = self._resolve_computed_field(row, f)
+                field = self._resolve_computed_field(row, f, base_col=base_col)
             else:
                 resolved_value = self._resolve_field_value(
                     row, f["value"], f.get("transform"), base_col=base_col
@@ -508,15 +509,15 @@ class Transformers:
 
         return result
 
-    def _resolve_computed_field(self, row: dict, field_def: dict) -> dict:
+    def _resolve_computed_field(self, row: dict, field_def: dict, base_col: str = None) -> dict:
         """
         Evaluate a computed field against the current row.
 
         Expects:
             computed: true
             condition: 'jq: <expression>'   — evaluated against the full row dict
-            value:      <result when true>  — literal or column reference
-            else_value: <result when false> — literal or column reference (optional)
+            value:      <result when true>  — literal, token ($base, $variant, $base_annotation, $variant_annotation) or column reference
+            else_value: <result when false> — literal, token or column reference (optional)
             type:       <type resolver>     — optional
         """
         condition = field_def.get("condition", "")
@@ -532,7 +533,10 @@ class Transformers:
             matched = False
 
         raw_value = field_def["value"] if matched else field_def.get("else_value", "")
-        resolved_value = raw_value if isinstance(raw_value, bool) else (raw_value if isinstance(raw_value, str) else str(raw_value))
+        if isinstance(raw_value, bool):
+            resolved_value = raw_value
+        else:
+            resolved_value = self._resolve_field_value(row, str(raw_value), base_col=base_col)
 
         if field_def.get("required") and not str(resolved_value).strip():
             self._raise_required_field_error(field_def, row)
@@ -552,9 +556,13 @@ class Transformers:
             $variant → row['__value__']  (only meaningful inside expand_variants)
         """
         if value == "$base":
-            val = str(row["__base_value__"]) if "__base_value__" in row else self._cell_value(row, base_col or "")
+            val = str(row["__base_cell__"].get("value", "")) if "__base_cell__" in row else self._cell_value(row, base_col or "")
+        elif value == "$base_annotation":
+            val = str(row["__base_cell__"].get("annotation", "") or "") if "__base_cell__" in row else ""
         elif value == "$variant":
-            val = str(row.get("__value__", ""))
+            val = str(row["__cell__"].get("value", "")) if "__cell__" in row else ""
+        elif value == "$variant_annotation":
+            val = str(row["__cell__"].get("annotation", "") or "") if "__cell__" in row else ""
         elif value.startswith("$annotation:"):
             col = value[12:]
             v = row.get(col, {})

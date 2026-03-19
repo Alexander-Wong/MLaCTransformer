@@ -151,7 +151,10 @@ sheets:
                   - name: "Specification Label"
                     value: "Item"
                   - name: "Specification Value"
-                    value: $base
+                    computed: true
+                    condition: 'jq: .__base_cell__.annotation != null and .__base_cell__.annotation != ""'
+                    value: "$base_annotation"
+                    else_value: "$base"
                     type: "getType"
                
                 children:
@@ -160,7 +163,10 @@ sheets:
                     filter: '.'
                     fields:
                       - name: "Specification Value"
-                        value: "__value__"
+                        computed: true
+                        condition: 'jq: .__cell__.annotation != null and .__cell__.annotation != ""'
+                        value: "$variant_annotation"
+                        else_value: "$variant"
                         type: "getType"
                       - name: "Vehicle Package"
                         value: "__column__"
@@ -169,7 +175,7 @@ sheets:
                         type: "lookup"
                       - name: "Is Dot"
                         computed: true
-                        condition: 'jq: .__value__ == "n"'
+                        condition: 'jq: .__cell__.value == "n"'
                         value: true
                         else_value: false
                         type: "getType"
@@ -240,7 +246,7 @@ sheets:
         children:
           - templateKey: "relation"
             expand_variants: true
-            filter: 'map(select(.__value__ == "X"))'
+            filter: 'map(select(.__cell__.value == "X"))'
 
 
   explode:
