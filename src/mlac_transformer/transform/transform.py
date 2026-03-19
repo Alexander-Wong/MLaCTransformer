@@ -435,7 +435,12 @@ class Transformers:
                     resolved_value = f["default"]
                 if f.get("required") and not str(resolved_value).strip():
                     self._raise_required_field_error(f, row)
-                field = {"name": f["name"], "value": resolved_value}
+                try:
+                    parsed = json.loads(resolved_value)
+                    value_out = parsed if isinstance(parsed, (list, dict)) else resolved_value
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    value_out = resolved_value
+                field = {"name": f["name"], "value": value_out}
                 if "type" in f:
                     field["type"] = self._resolve_field_type(resolved_value, f["type"])
                 if "relationKey" in f:
@@ -691,7 +696,11 @@ class Transformers:
         """Apply a JQ expression to a scalar string value. Returns original on error."""
         try:
             result = jq.first(expression, value)
-            return str(result).strip() if result is not None else ""
+            if result is None:
+                return ""
+            if isinstance(result, (list, dict)):
+                return json.dumps(result)
+            return str(result).strip()
         except Exception as e:
             write_log("warning", f"JQ transform error on expression '{expression}': {e}")
             return str(value).strip()

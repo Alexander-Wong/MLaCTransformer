@@ -67,12 +67,8 @@ sheets:
 
     relations:
       package:
-        target_path: "/sitecore/content/acura-platform/resources/components/vehicles/2026/integra/build-and-price-components/trims/packages"
-        lookup:
-          target_lookup_field: "packageName"    
-          target_key_field: "id"        
-      
-                    
+        entity: "/sitecore/content/acura-platform/resources/components/vehicles/2026/integra/build-and-price-components/trims/packages"
+
     source_structure:
       column_label: "Packages"
       column_base: "Integra"
@@ -168,6 +164,7 @@ sheets:
                         type: "getType"
                       - name: "Vehicle Package"
                         value: "__column__"
+                        transform: "jq: [.]"
                         relationKey: "package"
                         type: "lookup"
 
