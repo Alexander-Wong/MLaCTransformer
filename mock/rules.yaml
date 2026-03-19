@@ -167,6 +167,12 @@ sheets:
                         transform: "jq: [.]"
                         relationKey: "package"
                         type: "lookup"
+                      - name: "Is Dot"
+                        computed: true
+                        condition: 'jq: .__value__ == "n"'
+                        value: true
+                        else_value: false
+                        type: "getType"
 
 
   updates:

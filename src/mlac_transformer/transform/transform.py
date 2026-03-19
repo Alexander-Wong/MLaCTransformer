@@ -532,13 +532,13 @@ class Transformers:
             matched = False
 
         raw_value = field_def["value"] if matched else field_def.get("else_value", "")
-        resolved_value = str(raw_value) if not isinstance(raw_value, str) else raw_value
+        resolved_value = raw_value if isinstance(raw_value, bool) else (raw_value if isinstance(raw_value, str) else str(raw_value))
 
         if field_def.get("required") and not str(resolved_value).strip():
             self._raise_required_field_error(field_def, row)
         field = {"name": field_def["name"], "value": resolved_value}
         if "type" in field_def:
-            field["type"] = self._resolve_field_type(resolved_value, field_def["type"])
+            field["type"] = self._resolve_field_type(str(resolved_value), field_def["type"])
         return field
 
     def _resolve_field_value(self, row: dict, value: str,
