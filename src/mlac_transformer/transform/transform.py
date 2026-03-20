@@ -548,6 +548,8 @@ class Transformers:
         field = {"name": field_def["name"], "value": resolved_value}
         if "type" in field_def:
             field["type"] = self._resolve_field_type(str(resolved_value), field_def["type"])
+        if "relationKey" in field_def:
+            field["relationKey"] = field_def["relationKey"]
         return field
 
     def _resolve_field_value(self, row: dict, value: str,

@@ -82,6 +82,7 @@ sheets:
       column_label: "Packages"
       column_base: "Integra"
       column_data:
+        - "Integra"
         - "A-Spec"
         - "A-Spec w/Technology (CVT)"
         - "A-Spec w/Technology (6MT)"
@@ -109,7 +110,8 @@ sheets:
             value: "Packages"
             transform: 'jq: ascii_downcase | gsub("[^a-z0-9]+"; "-") | ltrimstr("-") | rtrimstr("-") + "-modal"'
             omit_if_false: true
-            type: "getType"
+            type: "lookup"
+            relationKey: "internalCrossReference"
   
         children:
           - templateKey: "modal"
@@ -146,8 +148,9 @@ sheets:
                 value: "Category"
                 transform: 'jq: ascii_downcase | gsub("[^a-z0-9]+"; "-") | ltrimstr("-") | rtrimstr("-") + "-modal"'
                 omit_if_false: true
-                type: "getType"
-
+                type: "lookup"
+                relationKey: "internalCrossReference"
+                
             children:
               - templateKey: "modal"
                 filter: '[.[0] | select(.Category.annotation != null and .Category.annotation != "")]'
