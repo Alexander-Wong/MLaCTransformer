@@ -69,7 +69,7 @@ sheets:
         maxBackupsToKeep: 5
       dictionaries:
         templates:
-          folder:      "{E594C7E0-5616-4734-BFA0-B043778D11E4}"
+          folder:      "{A87A00B1-E6DB-45AB-8B54-636FEC3B5523}"
           group:       "{87169817-97AA-409F-8324-342CF34E7055}"
           spec:        "{6EEC54AA-3E5D-4F71-AB97-3253ED1E6D38}"
           packageSpec: "{050DEEDD-ADD5-4C8A-A75F-312D5C070D6D}"
