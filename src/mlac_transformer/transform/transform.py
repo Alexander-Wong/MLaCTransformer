@@ -241,11 +241,7 @@ class Transformers:
                     resolved_value = f["default"]
                 if f.get("required") and not str(resolved_value).strip():
                     self._raise_required_field_error(f, row)
-                try:
-                    parsed = json.loads(resolved_value)
-                    value_out = parsed if isinstance(parsed, (list, dict)) else resolved_value
-                except (json.JSONDecodeError, TypeError, ValueError):
-                    value_out = resolved_value
+                value_out = self._parse_json_value(resolved_value)
                 field = {"name": f["name"], "value": value_out}
                 if "type" in f:
                     field["type"] = self._resolve_field_type(resolved_value, f["type"])
@@ -339,7 +335,10 @@ class Transformers:
                               base_col: str = None) -> str:
         """Resolve a field value token or column reference, then apply any transform."""
         if value == "$base":
-            val = str(row["__base_cell__"].get("value", "")) if "__base_cell__" in row else self._cell_value(row, base_col or "")
+            if "__base_cell__" in row:
+                val = str(row["__base_cell__"].get("value", ""))
+            else:
+                val = self._cell_value(row, base_col or "")
         elif value == "$base_annotation":
             val = str(row["__base_cell__"].get("annotation", "") or "") if "__base_cell__" in row else ""
         elif value == "$variant":
@@ -416,6 +415,15 @@ class Transformers:
         if v.lower() in Transformers._BOOL_VALUES:
             return "boolean"
         return "string"
+
+    @staticmethod
+    def _parse_json_value(value: str):
+        """Promote JSON array/object strings to native types; return string otherwise."""
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, (list, dict)) else value
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return value
 
     @staticmethod
     def _cell_value(row: dict, col: str) -> str:
