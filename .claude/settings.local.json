@@ -28,7 +28,9 @@
       "Bash(git log:*)",
       "Bash(xargs ls:*)",
       "Bash(grep -E \"\\\\.\\(py|json|yaml|yml|toml\\)$\")",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(cp output/extraction/2026/03/20/input.json /tmp/extraction_before.json)",
+      "Bash(cp output/transform/2026/03/20/transform.json /tmp/transform_before.json)"
     ]
   }
 }

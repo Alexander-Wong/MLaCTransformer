@@ -361,12 +361,7 @@ class Transformers:
             write_log("error", f"JQ failed on group filter '{group_filter_expr}': {e}")
             return []
 
-        label_col = columns_def.get("column_label", "")
-        matched_keys = {self._cell_value(r, label_col) for r in matched}
-        group_indices = [
-            i for i, row in enumerate(rows)
-            if self._cell_value(row, label_col) in matched_keys
-        ]
+        group_indices = self._find_row_positions(matched, rows)
 
         result = []
         for pos, idx in enumerate(group_indices):
