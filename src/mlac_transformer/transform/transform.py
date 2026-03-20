@@ -125,18 +125,7 @@ class Transformers:
 
         output_items = self._build_items(flat_rows, items_def, columns_def)
 
-        groups_n = len(output_items)
-        specs_n  = sum(len(i.get("children", [])) for i in output_items)
-        pkg_n    = sum(
-            len(s.get("children", []))
-            for i in output_items
-            for s in i.get("children", [])
-        )
-        write_log(
-            "info",
-            f"[{sheet_name}] rows={len(flat_rows)}  "
-            f"groups={groups_n}  specs={specs_n}  packageSpecs={pkg_n}"
-        )
+        write_log("info", f"[{sheet_name}] rows={len(flat_rows)}  items={len(output_items)}")
 
         return {"sitecoreConfig": sitecore_config, "relations": relations, "items": output_items}
 
@@ -173,17 +162,13 @@ class Transformers:
         else:
             jq_input = context
 
-        if item_def.get("templateKey") == "group":
-            return self._build_group_items(jq_input, filter_expr, item_def, columns_def)
-
         try:
             selected = jq.first(filter_expr, jq_input) or []
         except Exception as e:
             write_log("warning", f"JQ error on filter '{filter_expr}': {e}")
             selected = []
 
-
-        scope_children = item_def.get("scope_children", False)
+        scope_children = item_def.get("scope_children", False) or item_def.get("templateKey") == "group"
         positions = self._find_row_positions(selected, jq_input) if scope_children else None
 
         result = []
@@ -203,23 +188,6 @@ class Transformers:
                     columns_def=columns_def,
                     parent_row=row,
                 )
-                if children:
-                    item["children"] = children
-            result.append(item)
-        return result
-
-    def _build_group_items(self, rows: list, filter_expr: str,
-                           item_def: dict, columns_def: dict) -> list:
-        """Handle group-level items with row scoping via _split_rows_into_groups."""
-        groups = self._split_rows_into_groups(rows, filter_expr)
-        result = []
-        for group_row, spec_rows in groups:
-            item = self._build_single_item(group_row, item_def, columns_def)
-            children_def = item_def.get("children", [])
-            if children_def:
-                # Pass [group_row] + spec_rows so children filter can use .[0] / .[1:]
-                child_context = [group_row] + spec_rows
-                children = self._build_items(child_context, children_def, columns_def, parent_row=group_row)
                 if children:
                     item["children"] = children
             result.append(item)
@@ -252,22 +220,6 @@ class Transformers:
             }
             for pkg_col in packages
         ]
-
-    def _split_rows_into_groups(self, rows: list, group_filter_expr: str) -> list:
-        """Pair each JQ-matched group header with the rows that follow it until the next header."""
-        try:
-            matched = jq.first(group_filter_expr, rows) or []
-        except Exception as e:
-            write_log("error", f"JQ failed on group filter '{group_filter_expr}': {e}")
-            return []
-
-        group_indices = self._find_row_positions(matched, rows)
-
-        result = []
-        for pos, idx in enumerate(group_indices):
-            next_idx = group_indices[pos + 1] if pos + 1 < len(group_indices) else len(rows)
-            result.append((rows[idx], rows[idx + 1 : next_idx]))
-        return result
 
     # =========================================================================
     # FIELD / NAME RESOLVERS
@@ -445,14 +397,13 @@ class Transformers:
         write_log("error", msg)
         raise RequiredFieldError(msg)
 
+    _BOOL_VALUES: frozenset = frozenset({"yes", "no", "true", "false", "✓", "✗"})
+
     def _resolve_field_type(self, value: str, type_name: str) -> str:
         """Run a named type resolver if one exists, otherwise return type_name as a literal."""
-        resolver = self._TYPE_RESOLVERS.get(type_name)
-        if resolver is None:
-            return type_name
-        return resolver(value)
-
-    _BOOL_VALUES: frozenset = frozenset({"yes", "no", "true", "false", "✓", "✗"})
+        if type_name == "getType":
+            return self._get_type(value)
+        return type_name
 
     @staticmethod
     def _get_type(value: str) -> str:
@@ -465,10 +416,6 @@ class Transformers:
         if v.lower() in Transformers._BOOL_VALUES:
             return "boolean"
         return "string"
-
-    _TYPE_RESOLVERS: dict = {
-        "getType": _get_type.__func__,
-    }
 
     @staticmethod
     def _cell_value(row: dict, col: str) -> str:
