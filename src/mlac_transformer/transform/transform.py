@@ -62,9 +62,7 @@ class Transformers:
 
     Usage:
         t = Transformers(raw_file="path/input.json", yaml_file="path/transform.yaml")
-        output_path = t.run()                      # process all sheets
-        output_path = t.run(sheet="specs")         # process one sheet only
-        output_path = t.run(split=True)            # one file per sheet
+        output_path = t.run()
     """
 
     def __init__(self, raw_file: str, yaml_file: str) -> None:
@@ -83,20 +81,8 @@ class Transformers:
     # PUBLIC ENTRY POINT
     # =========================================================================
 
-    def run(self, sheet: str = None, split: bool = False) -> str:
-        """
-        Execute the transformation pipeline.
-
-        Args:
-            sheet : Process only this sheet name (overrides input.sheets in YAML).
-            split : When True, write one JSON file per sheet and return the
-                    output directory path.  When False (default), write all
-                    sheets combined into a single JSON array and return that
-                    file path.
-
-        Returns:
-            Path string of the written output file (or directory if split=True).
-        """
+    def run(self) -> str:
+        """Execute the transformation pipeline."""
         cfg = self._load_yaml()
         raw = self._load_raw_json()
 
@@ -104,11 +90,7 @@ class Transformers:
         workbook_key = input_cfg.get("workbook_key", "workbook")
         sheets_def   = cfg.get("sheets", {})
 
-        # Resolve which sheets to process
-        if sheet:
-            sheet_names = [sheet]
-        else:
-            sheet_names = input_cfg.get("sheets", list(sheets_def.keys()))
+        sheet_names = input_cfg.get("sheets", list(sheets_def.keys()))
 
         write_log("info", f"Sheets to process: {sheet_names}")
 
@@ -127,11 +109,7 @@ class Transformers:
                 sheets_def[sheet_name], flat_rows, sheet_name
             )
 
-        # Write output
-        if split:
-            return self._write_split_output(results, sheet_names)
-        else:
-            return self._write_combined_output(results, sheet_names)
+        return self._write_combined_output(results, sheet_names)
 
     # =========================================================================
     # I/O HELPERS
@@ -189,18 +167,6 @@ class Transformers:
         write_log("info", f"Combined output ({len(combined)} sheet(s)) written to '{out_file}'.")
         return str(out_file)
 
-    def _write_split_output(self, results: dict, sheet_names: list) -> str:
-        """Write one JSON file per sheet. Returns the output directory path."""
-        self.output_path.mkdir(parents=True, exist_ok=True)
-        for sheet_name in sheet_names:
-            if sheet_name not in results:
-                continue
-            out_file = self.output_path / f"{sheet_name}.json"
-            with open(out_file, "w", encoding="utf-8") as fh:
-                json.dump([results[sheet_name]], fh, indent=2, ensure_ascii=False)
-            write_log("info", f"Sheet '{sheet_name}' written to '{out_file}'.")
-        return str(self.output_path)
-
     # =========================================================================
     # SHEET PROCESSOR
     # =========================================================================
@@ -236,7 +202,7 @@ class Transformers:
     def _build_sitecore_config(self, raw_cfg: dict) -> dict:
         dictionaries = raw_cfg.get("dictionaries", {})
         return {
-            "rootPath":       raw_cfg.get("rootPath", raw_cfg.get("modelPath", "")),
+            "rootPath":       raw_cfg.get("rootPath", ""),
             "importStrategy": raw_cfg.get("importStrategy", {}),
             "backupStrategy": raw_cfg.get("backupStrategy", {}),
             "templates":      dictionaries.get("templates", {}),
@@ -288,8 +254,7 @@ class Transformers:
             selected = []
 
 
-        scope_children       = item_def.get("scope_children", False)
-        children_filter_expr = item_def.get("children_filter")
+        scope_children = item_def.get("scope_children", False)
 
         result = []
         if scope_children:
@@ -317,16 +282,8 @@ class Transformers:
                 item = self._build_single_item(row, item_def, columns_def, scoped_rows=[row])
                 children_def = item_def.get("children", [])
                 if children_def:
-                    if children_filter_expr:
-                        try:
-                            child_context = jq.first(children_filter_expr, jq_input) or []
-                        except Exception as e:
-                            write_log("warning", f"JQ error on children_filter '{children_filter_expr}': {e}")
-                            child_context = [row]
-                    else:
-                        child_context = [row]
                     children = self._build_items(
-                        context=child_context,
+                        context=[row],
                         items_def=children_def,
                         columns_def=columns_def,
                         parent_row=row,
@@ -651,12 +608,11 @@ class Transformers:
         Returns:
             "number"  — numeric value (int or float, including negatives)
             "boolean" — availability / yes-no value
-            "string"  — any other non-empty text
-            "undefined" — empty or whitespace-only
+            "string"  — any other text, including empty or whitespace-only
         """
         v = str(value).strip()
         if not v:
-            return "undefined"
+            return "string"
 
         # Number: optional sign, digits, optional decimal, optional trailing non-numeric
         # e.g. "150", "2.0", "-40", "1,234" (with comma-stripping)
