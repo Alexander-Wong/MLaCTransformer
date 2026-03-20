@@ -7,11 +7,17 @@
 #   sheets:                  one entry per sheet; each is a full transform definition
 #     <sheet_name>:
 #       sitecore_config:     sitecore target settings for this sheet's output
+#         rootPath:          sitecore destination path
+#         importStrategy:    { mode, missingItemAction }
+#         backupStrategy:    { enabled, archivePath, prefix, maxBackupsToKeep }
+#         dictionaries:
+#           templates:       template alias → GUID map
+#           relations:       relation alias → sitecore path (optional)
 #       source_structure:    maps column_label, column_base and column_data to actual column headers
 #       items:               declarative hierarchy to build (group → spec → packageSpec)
 #
 # ITEM DEFINITION KEYS:
-#   templateKey       : sitecore template alias (must exist in sitecore_config.templates)
+#   templateKey       : sitecore template alias (must exist in sitecore_config.dictionaries.templates)
 #   filter            : JQ expression applied to the context list for this level
 #   scope_children    : false (default) | true
 #                         true — slice the parent context between consecutive matched rows
@@ -52,22 +58,25 @@ sheets:
   specs:
 
     sitecore_config:
-      modelPath: "/sitecore/content/acura-platform/resources/components/vehicles/2025/integra/page-content/specs/specifications"
-      backupName: "specs-and-price-DD-MM-YYYY-HH-MM-SS"
-      backupPath: "../"
-      backupCount: 5
-      type: "table"
-      operation: "create"
-      templates:
-        folder:      "{E594C7E0-5616-4734-BFA0-B043778D11E4}"
-        group:       "{87169817-97AA-409F-8324-342CF34E7055}"
-        spec:        "{6EEC54AA-3E5D-4F71-AB97-3253ED1E6D38}"
-        packageSpec: "{050DEEDD-ADD5-4C8A-A75F-312D5C070D6D}"
-        modal:       "{7A770BDC-69A8-4566-9CB1-E4D037BB8A8B}"
-
-    relations:
-      package:
-        entity: "/sitecore/content/acura-platform/resources/components/vehicles/2026/integra/build-and-price-components/trims/packages"
+      rootPath: "/sitecore/content/acura-platform/resources/components/vehicles/2025/integra/page-content/specs/specifications"
+      importStrategy:
+        mode: "wipeAndLoad"
+        missingItemAction: "ignore"
+      backupStrategy:
+        enabled: true
+        archivePath: "/sitecore/content/acura-platform/resources/components/vehicles/2025/integra/page-content/specs/archive"
+        prefix: "specs-and-price"
+        maxBackupsToKeep: 5
+      dictionaries:
+        templates:
+          folder:      "{E594C7E0-5616-4734-BFA0-B043778D11E4}"
+          group:       "{87169817-97AA-409F-8324-342CF34E7055}"
+          spec:        "{6EEC54AA-3E5D-4F71-AB97-3253ED1E6D38}"
+          packageSpec: "{050DEEDD-ADD5-4C8A-A75F-312D5C070D6D}"
+          modal:       "{7A770BDC-69A8-4566-9CB1-E4D037BB8A8B}"
+        relations:
+          package: "/sitecore/content/acura-platform/resources/components/vehicles/2025/integra/build-and-price-components/trims/packages"
+          internalCrossReference: "SELF"
 
     source_structure:
       column_label: "Packages"
@@ -94,12 +103,20 @@ sheets:
             value: "Packages"
             transform: 'jq: split(" > ") | .[1] | ascii_upcase'
             type: "getType"
+          - name: "modal"
+            computed: true
+            condition: 'jq: .Packages.annotation != null and .Packages.annotation != ""'
+            value: "Packages"
+            transform: 'jq: ascii_downcase | gsub("[^a-z0-9]+"; "-") | ltrimstr("-") | rtrimstr("-") + "-modal"'
+            omit_if_false: true
+            type: "getType"
   
         children:
           - templateKey: "modal"
             filter: '[.[0] | select(.Packages.annotation != null and .Packages.annotation != "")]'
-            name_slug:
+            name:
               field: "Packages"
+              transform: 'jq: ascii_downcase | gsub("[^a-z0-9]+"; "-") | ltrimstr("-") | rtrimstr("-") + "-modal"'
             fields:
               - name: "Headline"
                 value: "$annotation:Packages"
@@ -123,12 +140,20 @@ sheets:
               - name: "Specification Label"
                 value: "Category"
                 type: "getType"
-     
+              - name: "modal"
+                computed: true
+                condition: 'jq: .Category.annotation != null and .Category.annotation != ""'
+                value: "Category"
+                transform: 'jq: ascii_downcase | gsub("[^a-z0-9]+"; "-") | ltrimstr("-") | rtrimstr("-") + "-modal"'
+                omit_if_false: true
+                type: "getType"
+
             children:
               - templateKey: "modal"
                 filter: '[.[0] | select(.Category.annotation != null and .Category.annotation != "")]'
-                name_slug:
+                name:
                   field: "Category"
+                  transform: 'jq: ascii_downcase | gsub("[^a-z0-9]+"; "-") | ltrimstr("-") | rtrimstr("-") + "-modal"'
                 fields:
                   - name: "Headline"
                     value: "$annotation:Category"
@@ -183,14 +208,18 @@ sheets:
 
   updates:
     sitecore_config:
-      modelPath: "/sitecore/content/acura-platform/resources/components/vehicles/2025/integra/page-content/specs/updates"
-      backupName: "updates-DD-MM-YYYY-HH-MM-SS"
-      backupPath: "../"
-      backupCount: 5
-      type: "list"
-      operation: "create"
-      templates:
-        row:   "{SOME-TEMPLATE-GUID-HERE}"
+      rootPath: "/sitecore/content/acura-platform/resources/components/vehicles/2025/integra/page-content/specs/updates"
+      importStrategy:
+        mode: "wipeAndLoad"
+        missingItemAction: "ignore"
+      backupStrategy:
+        enabled: true
+        archivePath: "../"
+        prefix: "updates"
+        maxBackupsToKeep: 5
+      dictionaries:
+        templates:
+          row:   "{SOME-TEMPLATE-GUID-HERE}"
 
     source_structure:
       column_label: "Feature"
@@ -219,11 +248,19 @@ sheets:
 
   oneToMany:
     sitecore_config:
-      modelPath: "/sitecore/content/..."
-      backupName: "components"
-      templates:
-        component: "{component-template-guid}"
-        relation: "{relation-template-guid}"
+      rootPath: "/sitecore/content/..."
+      importStrategy:
+        mode: "wipeAndLoad"
+        missingItemAction: "ignore"
+      backupStrategy:
+        enabled: true
+        archivePath: "../"
+        prefix: "components"
+        maxBackupsToKeep: 5
+      dictionaries:
+        templates:
+          component: "{component-template-guid}"
+          relation: "{relation-template-guid}"
 
     source_structure:
       column_label: "Componente"
@@ -251,10 +288,18 @@ sheets:
 
   explode:
     sitecore_config:
-      modelPath: "/sitecore/content/..."
-      backupName: "components"
-      templates:
-        component: "{component-template-guid}"
+      rootPath: "/sitecore/content/..."
+      importStrategy:
+        mode: "wipeAndLoad"
+        missingItemAction: "ignore"
+      backupStrategy:
+        enabled: true
+        archivePath: "../"
+        prefix: "components"
+        maxBackupsToKeep: 5
+      dictionaries:
+        templates:
+          component: "{component-template-guid}"
 
     source_structure:
       column_label: "Componente"
@@ -276,8 +321,16 @@ sheets:
 
   schema:
     sitecore_config:
-        modelPath: "/sitecore/content/..."
-        backupName: "components"
+      rootPath: "/sitecore/content/..."
+      importStrategy:
+        mode: "wipeAndLoad"
+        missingItemAction: "ignore"
+      backupStrategy:
+        enabled: true
+        archivePath: "../"
+        prefix: "components"
+        maxBackupsToKeep: 5
+      dictionaries:
         templates:
           component: "{component-template-guid}"
 

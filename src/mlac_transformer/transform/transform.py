@@ -212,7 +212,7 @@ class Transformers:
         """
         self._current_sheet = sheet_name
         sitecore_config = self._build_sitecore_config(sheet_spec.get("sitecore_config", {}))
-        relations       = sheet_spec.get("relations", {})
+        relations       = sitecore_config.pop("relations", {})
         columns_def     = sheet_spec.get("source_structure", {})
         items_def       = sheet_spec.get("items", [])
 
@@ -234,14 +234,13 @@ class Transformers:
         return {"sitecoreConfig": sitecore_config, "relations": relations, "items": output_items}
 
     def _build_sitecore_config(self, raw_cfg: dict) -> dict:
+        dictionaries = raw_cfg.get("dictionaries", {})
         return {
-            "modelPath":   raw_cfg.get("model_path",   raw_cfg.get("modelPath", "")),
-            "backupName":  raw_cfg.get("backup_name",  raw_cfg.get("backupName", "")),
-            "backupPath":  raw_cfg.get("backup_path",  raw_cfg.get("backupPath", "")),
-            "backupCount": raw_cfg.get("backup_count", raw_cfg.get("backupCount", 0)),
-            "type":        raw_cfg.get("type", ""),
-            "operation":   raw_cfg.get("operation", ""),
-            "templates":   raw_cfg.get("templates", {}),
+            "rootPath":       raw_cfg.get("rootPath", raw_cfg.get("modelPath", "")),
+            "importStrategy": raw_cfg.get("importStrategy", {}),
+            "backupStrategy": raw_cfg.get("backupStrategy", {}),
+            "templates":      dictionaries.get("templates", {}),
+            "relations":      dictionaries.get("relations", {}),
         }
 
     # =========================================================================
@@ -428,6 +427,8 @@ class Transformers:
         for f in fields_def:
             if f.get("computed"):
                 field = self._resolve_computed_field(row, f, base_col=base_col)
+                if field is None:
+                    continue
             else:
                 resolved_value = self._resolve_field_value(
                     row, f["value"], f.get("transform"), base_col=base_col
@@ -532,11 +533,15 @@ class Transformers:
             write_log("warning", f"Computed field '{field_def['name']}' condition error: {e}")
             matched = False
 
+        if not matched and field_def.get("omit_if_false"):
+            return None
+
         raw_value = field_def["value"] if matched else field_def.get("else_value", "")
         if isinstance(raw_value, bool):
             resolved_value = raw_value
         else:
-            resolved_value = self._resolve_field_value(row, str(raw_value), base_col=base_col)
+            transform = field_def.get("transform") if matched else None
+            resolved_value = self._resolve_field_value(row, str(raw_value), transform, base_col=base_col)
 
         if field_def.get("required") and not str(resolved_value).strip():
             self._raise_required_field_error(field_def, row)
