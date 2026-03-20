@@ -13,57 +13,7 @@ class RequiredFieldError(Exception):
 
 
 class Transformers:
-    """
-    ETL Stage 2 — Declarative Transform Processor (multi-sheet).
-
-    Transforms a flat JSON workbook (produced by the extractor) into one or
-    more hierarchical Sitecore-ready JSON structures, driven entirely by a
-    declarative YAML specification.  No business logic lives here — this class
-    is a pure interpreter of the YAML declarations.
-
-    YAML structure expected:
-        input:
-          workbook_key: "workbook"
-          sheets: [specs, ...]
-
-        sheets:
-          specs:
-            sitecore_config: { ... }
-            columns:
-              base: "ColName"
-              packages: ["ColA", "ColB", ...]
-            items:
-              - templateKey: "group"
-                filter: '<JQ on all rows>'
-                children:
-                  - templateKey: "spec"
-                    filter: '<JQ on scoped rows>'
-                    children:                          # N levels deep
-                      - templateKey: "packageSpec"
-                        expand_variants: true          # JQ on normalized variant rows
-                        filter: '<JQ on variant rows>'
-                        fields: [...]
-
-    expand_variants:
-        false (default) — JQ operates on the inherited row list context
-        true            — JQ operates on [{__column__, __value__, __base_value__}, ...]
-                          derived from columns.variants and the parent spec row
-
-    dynamic_fields:
-        Generates fields dynamically from the rows in scope rather than from
-        static field definitions.  Useful for long/vertical Excel formats where
-        field names live in a column instead of as column headers.
-            name_from : column whose value becomes the field name
-            value_from: column whose value becomes the field value
-            filter    : optional JQ expression to pre-filter the scoped rows
-            type      : optional type resolver (e.g. "getType")
-        When scope_children is true, scoped rows are the positional slice owned
-        by the item.  Otherwise the scope is the single matched row.
-
-    Usage:
-        t = Transformers(raw_file="path/input.json", yaml_file="path/transform.yaml")
-        output_path = t.run()
-    """
+    """Interprets a declarative YAML specification to transform a flat JSON workbook into Sitecore-ready output."""
 
     def __init__(self, raw_file: str, yaml_file: str) -> None:
         self.raw_file      = raw_file
@@ -94,7 +44,6 @@ class Transformers:
 
         write_log("info", f"Sheets to process: {sheet_names}")
 
-        # Process each sheet
         results: dict[str, dict] = {}
         for sheet_name in sheet_names:
             if sheet_name not in sheets_def:
@@ -136,12 +85,7 @@ class Transformers:
             raise
 
     def _load_sheet_rows(self, raw: dict, workbook_key: str, sheet_name: str) -> list:
-        """
-        Navigate the raw JSON to find the rows for a given sheet.
-        Supports:
-          - raw is a list                          → use directly
-          - raw[workbook_key][sheet_name]          → standard workbook structure
-        """
+        """Locate and return the row list for a sheet from the raw JSON workbook."""
         if isinstance(raw, list):
             return raw
 
@@ -172,10 +116,7 @@ class Transformers:
     # =========================================================================
 
     def _process_sheet(self, sheet_spec: dict, flat_rows: list, sheet_name: str) -> dict:
-        """
-        Apply the sheet's YAML definition to its flat rows.
-        Returns a sitecore output dict: { sitecoreConfig, items }.
-        """
+        """Apply a sheet's YAML definition to its flat rows and return the output dict."""
         self._current_sheet = sheet_name
         sitecore_config = self._build_sitecore_config(sheet_spec.get("sitecore_config", {}))
         relations       = sitecore_config.pop("relations", {})
@@ -215,16 +156,7 @@ class Transformers:
 
     def _build_items(self, context: list, items_def: list,
                      columns_def: dict, parent_row: dict = None) -> list:
-        """
-        Recursively build output items from a context list and item definitions.
-
-        Args:
-            context    : List of row dicts to apply source JQ expressions to.
-            items_def  : Item definition list from the YAML.
-            columns_def: The columns block from the sheet definition.
-            parent_row : The parent item's row dict, used when a child declares
-                         expand_variants=true to generate normalized variant rows.
-        """
+        """Recursively build output items from a context list and item definitions."""
         output = []
         for item_def in items_def:
             output.extend(self._build_item_list(context, item_def, columns_def, parent_row))
@@ -236,17 +168,14 @@ class Transformers:
         filter_expr     = item_def.get("filter", "")
         expand_variants = item_def.get("expand_variants", False)
 
-        # Determine the JQ input based on expand_variants flag
         if expand_variants:
             jq_input = self._normalize_package_rows(parent_row or {}, columns_def)
         else:
             jq_input = context
 
-        # Group items use the scoping mechanism
         if item_def.get("templateKey") == "group":
             return self._build_group_items(jq_input, filter_expr, item_def, columns_def)
 
-        # All other items: apply filter JQ to jq_input
         try:
             selected = jq.first(filter_expr, jq_input) or []
         except Exception as e:
@@ -255,48 +184,34 @@ class Transformers:
 
 
         scope_children = item_def.get("scope_children", False)
+        positions = self._find_row_positions(selected, jq_input) if scope_children else None
 
         result = []
-        if scope_children:
-            # Slice the parent context between consecutive selected rows so each
-            # item only sees the rows that belong to it (same logic as groups).
-            positions = self._find_row_positions(selected, jq_input)
-            for idx, row in enumerate(selected):
+        for idx, row in enumerate(selected):
+            if scope_children:
                 pos_start   = positions[idx]
                 pos_end     = positions[idx + 1] if idx + 1 < len(positions) else len(jq_input)
                 scoped_rows = jq_input[pos_start:pos_end]
-                item = self._build_single_item(row, item_def, columns_def, scoped_rows=scoped_rows)
-                children_def = item_def.get("children", [])
-                if children_def:
-                    children = self._build_items(
-                        context=scoped_rows,
-                        items_def=children_def,
-                        columns_def=columns_def,
-                        parent_row=row,
-                    )
-                    if children:
-                        item["children"] = children
-                result.append(item)
-        else:
-            for row in selected:
-                item = self._build_single_item(row, item_def, columns_def, scoped_rows=[row])
-                children_def = item_def.get("children", [])
-                if children_def:
-                    children = self._build_items(
-                        context=[row],
-                        items_def=children_def,
-                        columns_def=columns_def,
-                        parent_row=row,
-                    )
-                    if children:
-                        item["children"] = children
-                result.append(item)
+            else:
+                scoped_rows = [row]
+            item = self._build_single_item(row, item_def, columns_def, scoped_rows=scoped_rows)
+            children_def = item_def.get("children", [])
+            if children_def:
+                children = self._build_items(
+                    context=scoped_rows,
+                    items_def=children_def,
+                    columns_def=columns_def,
+                    parent_row=row,
+                )
+                if children:
+                    item["children"] = children
+            result.append(item)
         return result
 
     def _build_group_items(self, rows: list, filter_expr: str,
                            item_def: dict, columns_def: dict) -> list:
         """Handle group-level items with row scoping via _split_rows_into_groups."""
-        groups = self._split_rows_into_groups(rows, filter_expr, columns_def)
+        groups = self._split_rows_into_groups(rows, filter_expr)
         result = []
         for group_row, spec_rows in groups:
             item = self._build_single_item(group_row, item_def, columns_def)
@@ -326,15 +241,7 @@ class Transformers:
         }
 
     def _normalize_package_rows(self, row: dict, columns_def: dict) -> list:
-        """
-        Convert a spec row into a list of normalized variant row dicts, one per
-        variant column defined in columns.variants.  Reserved double-underscore keys
-        prevent collision with real column names:
-
-            __column__    : package column name
-            __cell__      : full cell object of the variant column in the spec row
-            __base_cell__ : full cell object of the base column in the spec row
-        """
+        """Expand a spec row into one normalized variant dict per column_data entry."""
         base_col = columns_def.get("column_base", "")
         packages = columns_def.get("column_data", [])
         return [
@@ -346,15 +253,8 @@ class Transformers:
             for pkg_col in packages
         ]
 
-    def _split_rows_into_groups(self, rows: list, group_filter_expr: str,
-                               columns_def: dict) -> list:
-        """
-        Apply the JQ group-filter expression to the full rows array, locate the
-        matching header rows by position, then pair each header with the slice of
-        rows that follow it until the next header.
-
-        Returns: list of (group_row, [spec_rows_in_this_group])
-        """
+    def _split_rows_into_groups(self, rows: list, group_filter_expr: str) -> list:
+        """Pair each JQ-matched group header with the rows that follow it until the next header."""
         try:
             matched = jq.first(group_filter_expr, rows) or []
         except Exception as e:
@@ -403,20 +303,7 @@ class Transformers:
         return result
 
     def _build_dynamic_fields(self, rows: list, dynamic_def: dict, row: dict = None) -> list:
-        """
-        Build fields from a list of rows where each row contributes one field.
-        The field name comes from name_from column and value from value_from column.
-
-        If dynamic_def contains a 'source' key, the rows are read from row[source]
-        (a list embedded in the current row by a JQ filter) instead of scoped_rows.
-        This avoids relying on scope_children and _find_row_positions.
-
-        required:        when true, every generated field must have a non-empty value
-                         (value_from column must be non-empty for every row).
-        required_fields: list of attribute names (name_from values) that must appear
-                         in the generated output with a non-empty value.
-        Both raise RequiredFieldError with the offending row included in the log.
-        """
+        """Generate fields from scoped rows where each row contributes one name/value pair."""
         name_col        = dynamic_def.get("name_from", "")
         value_col       = dynamic_def.get("value_from", "")
         filter_expr     = dynamic_def.get("filter")
@@ -463,16 +350,7 @@ class Transformers:
         return result
 
     def _resolve_computed_field(self, row: dict, field_def: dict, base_col: str = None) -> dict:
-        """
-        Evaluate a computed field against the current row.
-
-        Expects:
-            computed: true
-            condition: 'jq: <expression>'   — evaluated against the full row dict
-            value:      <result when true>  — literal, token ($base, $variant, $base_annotation, $variant_annotation) or column reference
-            else_value: <result when false> — literal, token or column reference (optional)
-            type:       <type resolver>     — optional
-        """
+        """Evaluate a computed field's JQ condition and resolve value or else_value accordingly."""
         condition = field_def.get("condition", "")
         if not condition:
             write_log("warning", f"Computed field '{field_def['name']}' has no condition — skipping")
@@ -507,13 +385,7 @@ class Transformers:
     def _resolve_field_value(self, row: dict, value: str,
                               transform: str = None,
                               base_col: str = None) -> str:
-        """
-        Resolve a field value, handling special tokens and regex/JQ transforms.
-
-        Special tokens:
-            $base    → row[base_col]  (or row['__base_value__'] inside expand_variants)
-            $variant → row['__value__']  (only meaningful inside expand_variants)
-        """
+        """Resolve a field value token or column reference, then apply any transform."""
         if value == "$base":
             val = str(row["__base_cell__"].get("value", "")) if "__base_cell__" in row else self._cell_value(row, base_col or "")
         elif value == "$base_annotation":
@@ -534,11 +406,7 @@ class Transformers:
         return val
 
     def _resolve_item_name(self, row: dict, item_def: dict) -> str:
-        """
-        Resolve the display name for an item from the YAML definition.
-        For normalized package rows with no explicit name strategy,
-        defaults to the package column name stored in row['__column__'].
-        """
+        """Resolve the item name from name_static, name field, name_slug, or __column__ fallback."""
         if item_def.get("name_static"):
             return item_def["name_static"]
 
@@ -558,7 +426,6 @@ class Transformers:
         # Normalized package rows: default name is the column name
         if "__column__" in row:
             return row["__column__"]
-
         return "unnamed"
 
     # =========================================================================
@@ -566,13 +433,7 @@ class Transformers:
     # =========================================================================
 
     def _raise_required_field_error(self, field_def: dict, row: dict) -> None:
-        """
-        Log a detailed error and raise RequiredFieldError when a required field
-        resolves to an empty, null, or undefined value.
-
-        Evaluated after: value resolution, transform, default, and before type.
-        Also evaluated after computed field condition resolution.
-        """
+        """Log a detailed error and raise RequiredFieldError for an empty required field."""
         field_name = field_def.get("name", "<unknown>")
         msg = (
             f"[REQUIRED FIELD MISSING]\n"
@@ -585,40 +446,24 @@ class Transformers:
         raise RequiredFieldError(msg)
 
     def _resolve_field_type(self, value: str, type_name: str) -> str:
-        """
-        Dispatch to the named type resolver function.
-        If type_name matches a resolver (e.g. 'getType'), the resolver runs.
-        Otherwise type_name is treated as a literal string (e.g. 'lookup', 'RichText').
-        """
+        """Run a named type resolver if one exists, otherwise return type_name as a literal."""
         resolver = self._TYPE_RESOLVERS.get(type_name)
         if resolver is None:
             return type_name
         return resolver(value)
 
+    _BOOL_VALUES: frozenset = frozenset({"yes", "no", "true", "false", "✓", "✗"})
+
     @staticmethod
     def _get_type(value: str) -> str:
-        """
-        Infer a semantic type from a resolved string value.
-
-        Returns:
-            "number"  — numeric value (int or float, including negatives)
-            "boolean" — availability / yes-no value
-            "string"  — any other text, including empty or whitespace-only
-        """
+        """Infer number, boolean, or string from a resolved value."""
         v = str(value).strip()
         if not v:
             return "string"
-
-        # Number: optional sign, digits, optional decimal, optional trailing non-numeric
-        # e.g. "150", "2.0", "-40", "1,234" (with comma-stripping)
         if re.fullmatch(r"-?\d[\d,]*(\.\d+)?", v.replace(",", "")):
             return "number"
-
-        # Boolean / availability markers (case-insensitive)
-        _BOOL_VALUES = {True, False, "yes", "no", "true", "false", "✓", "✗"}
-        if v.lower() in _BOOL_VALUES:
+        if v.lower() in Transformers._BOOL_VALUES:
             return "boolean"
-
         return "string"
 
     _TYPE_RESOLVERS: dict = {
@@ -646,13 +491,7 @@ class Transformers:
 
     @staticmethod
     def _apply_transform(value: str, transform: str) -> str:
-        """
-        Dispatch a transform expression to JQ or regex based on prefix.
-
-        Prefix rules:
-            'jq: <expression>'  → execute expression as a JQ program on the scalar string
-            '<pattern>'         → treat as a regex; return first capture group
-        """
+        """Dispatch to JQ transform (jq: prefix) or regex first-capture-group."""
         if transform.startswith("jq:"):
             return Transformers._apply_jq_transform(value, transform[3:].strip())
         return Transformers._extract_pattern(value, transform)
