@@ -1,97 +1,112 @@
 # MLaCTransformer
 
-A Python transformer application that accepts an Excel file and a YAML configuration file, validates both inputs, and runs a processing pipeline through the `ExcelToJson` and `Transformers` modules.
+## Description
 
----
+MLaCTransformer is a CLI tool that converts Excel spreadsheets into Sitecore-ready JSON using a declarative YAML configuration. It extracts cell data (including merged cells and comments) into a structured intermediate JSON, then applies YAML-defined transformation rules to produce the final output.
 
-## Project Structure
+## Features
 
-```
-MLaCTransformer/
-├── pyproject.toml
-├── transformer.py
-└── src/
-    └── mlac_transformer/
-        ├── __init__.py
-        ├── excel_to_json/
-        │   ├── __init__.py
-        │   └── excel_to_json.py
-        ├── transformers/
-        │   ├── __init__.py
-        │   └── transformers.py
-        ├── file_validator/
-        │   ├── __init__.py
-        │   └── file_validator.py
-        └── error_logger/
-            ├── __init__.py
-            └── error_logger.py
-```
+- Extracts all sheets from an `.xlsx` file into a flat JSON representation
+- Preserves cell annotations (comments) alongside cell values
+- Handles merged cells and groups vertically-merged rows into single records
+- Declarative YAML-driven transformation with JQ filter support
+- Computed fields with conditional logic (`condition`, `omit_if_false`, `else_value`)
+- Dynamic field generation from scoped row data
+- Column-per-variant expansion (`expand_variants`) for tabular package-style data
+- Required field validation with detailed error reporting
+- Timestamped output under `output/extraction/` and `output/transform/`
 
----
+## Installation
 
-## Requirements
-
-- Python 3.9+
-- [Poetry](https://python-poetry.org/docs/#installation)
-
----
-
-## Setup
+Requires [Poetry](https://python-poetry.org/docs/#installation).
 
 ```bash
-# Install dependencies
+git clone <repository-url>
+cd MLaCTransformer
 poetry install
 ```
 
----
+## Quick Start
 
-## Usage
+**Step 1 — Extract** (Excel → JSON):
+```bash
+mlac-extractor path/to/input.xlsx
+```
+
+**Step 2 — Transform** (JSON + YAML → Sitecore JSON):
+```bash
+mlac-transformer output/extraction/YYYY/MM/DD/input-HH-MM-SS.json path/to/config.yaml
+```
+
+Output files will be written to:
+- `output/extraction/YYYY/MM/DD/<filename>-HH-MM-SS.json` — raw extracted data
+- `output/transform/YYYY/MM/DD/<filename>-HH-MM-SS.json` — final transformed output
+
+## Usage (High-level)
+
+The tool is split into two independent commands:
+
+1. **`mlac-extractor`** — validates the Excel file, reads all sheets, and writes a structured intermediate JSON where every cell is `{"value": "..."}` (with an optional `"annotation"` key if a comment is present)
+2. **`mlac-transformer`** — validates the JSON and YAML files, applies the declarative YAML rules, and writes the Sitecore-ready output
+
+### Extractor
 
 ```bash
-poetry run python transformer.py <excel_file> <yaml_file>
+mlac-extractor <excel_file>
 ```
 
 | Argument | Description |
 |---|---|
 | `excel_file` | Path to the input Excel file (`.xlsx`) |
+
+```bash
+mlac-extractor --help
+```
+
+### Transformer
+
+```bash
+mlac-transformer <json_file> <yaml_file>
+```
+
+| Argument | Description |
+|---|---|
+| `json_file` | Path to the extracted JSON file (output of `mlac-extractor`) |
 | `yaml_file` | Path to the YAML configuration file (`.yaml` or `.yml`) |
 
-### Examples
-
-**Happy path:**
 ```bash
-poetry run python transformer.py mock/input.xlsx mock/rules.yaml
+mlac-transformer --help
 ```
 
-Output:
-```
-Hi from ExcelToJson
-Hi from Transformers
-```
+### Alternative invocation (without installing)
 
-**Get help:**
 ```bash
-poetry run python transformer.py --help
+python -m src.mlac_etl.extractor <excel_file>
+python -m src.mlac_etl.transformer <json_file> <yaml_file>
 ```
 
----
+## Requirements
 
-## Error Handling
+- Python `^3.9`
+- [Poetry](https://python-poetry.org/docs/#installation)
 
-If either file is missing or has an invalid extension, the application exits with code `1` and writes the errors to `output/stderr.json`.
+| Package | Version |
+|---|---|
+| `openpyxl` | `^3.1.0` |
+| `PyYAML` | `^6.0.1` |
+| `jq` | `^1.11.0` |
 
-**Example `output/stderr.json`:**
-```json
-{
-  "status": "error",
-  "error_count": 2,
-  "errors": [
-    "Excel file not found: 'data/input.xlsx'",
-    "Invalid YAML extension '.txt' for file 'config.txt'. Expected one of: ['.yaml', '.yml']"
-  ]
-}
-```
+## Contributing
 
-Valid extensions:
-- Excel: `.xlsx`
-- YAML: `.yaml`, `.yml`
+1. Fork the repository and create a feature branch
+2. Follow the existing code structure under `src/mlac_etl/`
+3. Ensure all changes are covered by tests before submitting a pull request
+4. Keep commits focused and write clear commit messages
+
+## License
+
+This project does not currently specify a license. Contact the maintainers for usage terms.
+
+## Contact / Support
+
+For questions or issues, please open an issue in the project repository.

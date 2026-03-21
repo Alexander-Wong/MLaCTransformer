@@ -6,7 +6,7 @@ from openpyxl.cell.cell import MergedCell
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
-from src.mlac_transformer.logger import write_log
+from mlac_etl.logger import write_log
 
 _RE_AUTHOR_TIMESTAMP = re.compile(r".+\s{2,}\(\d{4}-\d{2}-\d{2}")
 
@@ -23,16 +23,18 @@ class ExcelToJson:
     """
 
     def __init__(self, excel_path: str) -> None:
-        today = datetime.today()
+        """Store the input path and resolve the timestamped output directory."""
+        self.today = datetime.today()
         self.excel_path = excel_path
         self.output_path = (
             Path("output/extraction")
-            / today.strftime("%Y")
-            / today.strftime("%m")
-            / today.strftime("%d")
+            / self.today.strftime("%Y")
+            / self.today.strftime("%m")
+            / self.today.strftime("%d")
         )
 
     def run(self) -> str:
+        """Load the workbook, process every sheet, and write the output JSON. Returns the output file path."""
         try:
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
@@ -54,7 +56,7 @@ class ExcelToJson:
 
         try:
             self.output_path.mkdir(parents=True, exist_ok=True)
-            raw_file = self.output_path / (Path(self.excel_path).stem + ".json")
+            raw_file = self.output_path / (Path(self.excel_path).stem + "-" + self.today.strftime("%H-%M-%S") + ".json")
             raw_file.write_text(
                 json.dumps({"workbook": raw_data}, indent=2),
                 encoding="utf-8"
@@ -66,12 +68,10 @@ class ExcelToJson:
         return str(raw_file)
 
     def _build_sheet_rows(self, ws) -> tuple:
-        """
-        Build row dicts and group_id_map from worksheet.
+        """Read a worksheet into row dicts and a group_id_map for merged-row grouping.
 
-        Row 1 is treated as the header. Each subsequent row becomes a dict
-        keyed by column header. Each value is a cell object produced by
-        _build_cell_object. MergedCell slots are filled in the second pass.
+        Two-pass approach: first pass handles plain cells; second pass propagates
+        merged-range values and links rows that share a vertical merge into a group.
         """
         if ws.max_row < 2:
             return [], {}
@@ -120,19 +120,14 @@ class ExcelToJson:
         return rows, group_id_map
 
     def _build_cell_object(self, cell) -> dict:
-        """
-        Build a cell object with value and optional annotation.
-        annotation is only included when a comment exists.
-        """
+        """Return `{"value": ...}`, adding `"annotation"` only when a comment is present."""
         obj = {"value": self._clean_value(cell.value)}
         if cell.comment and cell.comment.text:
             obj["annotation"] = self._parse_comment(cell.comment.text, cell.comment.author)
         return obj
 
     def _collapse_groups(self, rows: list, group_id_map: dict) -> list:
-        """
-        Collapse rows sharing the same group_id into a single record.
-        """
+        """Merge rows that share the same group_id (vertical merge group) into a single record."""
         groups = defaultdict(list)
         for i, row in enumerate(rows):
             groups[group_id_map[i]].append(row)
@@ -150,10 +145,7 @@ class ExcelToJson:
         return result
 
     def _merge_cell_objects(self, objects: list) -> dict:
-        """
-        Merge multiple cell objects from the same merge group into one.
-        Values are joined (unique, non-empty). The first non-empty annotation wins.
-        """
+        """Combine cell objects from the same group: unique non-empty values joined, first annotation wins."""
         seen_values = {}  # ordered set: key = value string, insertion order preserved
         annotation = None
 
@@ -171,12 +163,9 @@ class ExcelToJson:
 
     @staticmethod
     def _parse_comment(text: str, author: str = "") -> str:
-        """
-        Return only the comment body, stripping Excel metadata.
+        """Strip Excel metadata from a comment and return only the body text.
 
-        Handles two formats:
-          - Threaded (modern Excel): ======\\nID#xxx\\nAuthor    (timestamp)\\ntext
-          - Classic: Author:\\ntext
+        Handles threaded (modern) and classic (`Author:\\ntext`) comment formats.
         """
         text = (text or "").strip()
 

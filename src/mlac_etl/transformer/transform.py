@@ -5,7 +5,7 @@ import yaml
 from datetime import datetime
 from pathlib import Path
 
-from src.mlac_transformer.logger import write_log
+from mlac_etl.logger import write_log
 
 
 class RequiredFieldError(Exception):
@@ -19,12 +19,12 @@ class Transformers:
         self.raw_file      = raw_file
         self.yaml_file     = yaml_file
         self._current_sheet: str = ""
-        today = datetime.today()
+        self.today = datetime.today()
         self.output_path = (
             Path("output/transform")
-            / today.strftime("%Y")
-            / today.strftime("%m")
-            / today.strftime("%d")
+            / self.today.strftime("%Y")
+            / self.today.strftime("%m")
+            / self.today.strftime("%d")
         )
 
     # =========================================================================
@@ -105,7 +105,8 @@ class Transformers:
         """Write all sheets as a single JSON array. Returns the output file path."""
         self.output_path.mkdir(parents=True, exist_ok=True)
         combined  = [results[s] for s in sheet_names if s in results]
-        out_file  = self.output_path / "transform.json"
+        stem      = re.sub(r"-\d{2}-\d{2}-\d{2}$", "", Path(self.raw_file).stem)
+        out_file  = self.output_path / (stem + "-" + self.today.strftime("%H-%M-%S") + ".json")
         with open(out_file, "w", encoding="utf-8") as fh:
             json.dump(combined, fh, indent=2, ensure_ascii=False)
         write_log("info", f"Combined output ({len(combined)} sheet(s)) written to '{out_file}'.")

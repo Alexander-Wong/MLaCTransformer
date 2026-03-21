@@ -30,7 +30,21 @@
       "Bash(grep -E \"\\\\.\\(py|json|yaml|yml|toml\\)$\")",
       "Bash(git checkout:*)",
       "Bash(cp output/extraction/2026/03/20/input.json /tmp/extraction_before.json)",
-      "Bash(cp output/transform/2026/03/20/transform.json /tmp/transform_before.json)"
+      "Bash(cp output/transform/2026/03/20/transform.json /tmp/transform_before.json)",
+      "Bash(pip install:*)",
+      "Bash(python -c \"from src.mlac_etl.extractor import ExcelToJson; print\\(''extractor OK''\\)\")",
+      "Bash(python -c \"from src.mlac_etl.transformer import Transformers; print\\(''transformer OK''\\)\")",
+      "Bash(python -c \"from src.mlac_etl.logger import init_log, write_log; print\\(''logger OK''\\)\")",
+      "Bash(python -c \"from src.mlac_etl.params_validator import validate_excel, validate_json_and_yaml; print\\(''params_validator OK''\\)\")",
+      "Bash(poetry env:*)",
+      "Bash(python3 -c \"from src.mlac_etl.extractor import ExcelToJson; print\\(''extractor OK''\\)\")",
+      "Bash(python3 -c \"from src.mlac_etl.transformer import Transformers; print\\(''transformer OK''\\)\")",
+      "Bash(python3 -c \"from src.mlac_etl.logger import init_log, write_log; print\\(''logger OK''\\)\")",
+      "Bash(python3 -c \"from src.mlac_etl.params_validator import validate_excel, validate_json_and_yaml; print\\(''params_validator OK''\\)\")",
+      "Bash(python3 -c \"import importlib; import src.mlac_etl.extractor.__main__; import src.mlac_etl.transformer.__main__; print\\(''entry points OK''\\)\")",
+      "Bash(mlac-extractor --help)",
+      "Bash(mlac-transformer --help)",
+      "Bash(poetry lock:*)"
     ]
   }
 }
