@@ -12,6 +12,11 @@ class RequiredFieldError(Exception):
     """Raised when a field marked required: true resolves to an empty, null, or undefined value."""
 
 
+_KEY_BASE_CELL = "__base_cell__"
+_KEY_CELL      = "__cell__"
+_KEY_COLUMN    = "__column__"
+
+
 class Transformers:
     """Interprets a declarative YAML specification to transform a flat JSON workbook into Sitecore-ready output."""
 
@@ -198,8 +203,8 @@ class Transformers:
                            scoped_rows: list = None) -> dict:
         """Build one output item dict (name, templateKey, fields) without recursing."""
         base_col = columns_def.get("column_base", "")
-        if "__base_cell__" not in row:
-            row = {**row, "__base_cell__": row.get(base_col, {})}
+        if _KEY_BASE_CELL not in row:
+            row = {**row, _KEY_BASE_CELL: row.get(base_col, {})}
         fields = self._build_fields(row, item_def.get("fields", []), base_col=base_col)
         if item_def.get("dynamic_fields") is not None:
             fields += self._build_dynamic_fields(scoped_rows or [row], item_def["dynamic_fields"], row=row)
@@ -215,9 +220,9 @@ class Transformers:
         packages = columns_def.get("column_data", [])
         return [
             {
-                "__column__":    pkg_col,
-                "__cell__":      row.get(pkg_col, {}),
-                "__base_cell__": row.get(base_col, {}),
+                _KEY_COLUMN:    pkg_col,
+                _KEY_CELL:      row.get(pkg_col, {}),
+                _KEY_BASE_CELL: row.get(base_col, {}),
             }
             for pkg_col in packages
         ]
@@ -336,16 +341,16 @@ class Transformers:
                               base_col: str = None) -> str:
         """Resolve a field value token or column reference, then apply any transform."""
         if value == "$base":
-            if "__base_cell__" in row:
-                val = str(row["__base_cell__"].get("value", ""))
+            if _KEY_BASE_CELL in row:
+                val = str(row[_KEY_BASE_CELL].get("value", ""))
             else:
                 val = self._cell_value(row, base_col or "")
         elif value == "$base_annotation":
-            val = str(row["__base_cell__"].get("annotation", "") or "") if "__base_cell__" in row else ""
+            val = str(row[_KEY_BASE_CELL].get("annotation", "") or "") if _KEY_BASE_CELL in row else ""
         elif value == "$variant":
-            val = str(row["__cell__"].get("value", "")) if "__cell__" in row else ""
+            val = str(row[_KEY_CELL].get("value", "")) if _KEY_CELL in row else ""
         elif value == "$variant_annotation":
-            val = str(row["__cell__"].get("annotation", "") or "") if "__cell__" in row else ""
+            val = str(row[_KEY_CELL].get("annotation", "") or "") if _KEY_CELL in row else ""
         elif value.startswith("$annotation:"):
             col = value[12:]
             v = row.get(col, {})
@@ -376,8 +381,8 @@ class Transformers:
             return self._slugify(self._cell_value(row, name_slug["field"]))
 
         # Normalized package rows: default name is the column name
-        if "__column__" in row:
-            return row["__column__"]
+        if _KEY_COLUMN in row:
+            return row[_KEY_COLUMN]
         return "unnamed"
 
     # =========================================================================
