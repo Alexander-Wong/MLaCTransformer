@@ -474,7 +474,7 @@ class Transformers:
     @staticmethod
     def _extract_pattern(value: str, pattern: str) -> str:
         """Return the first capture group of pattern matched against value."""
-        m = re.search(pattern, str(value), re.DOTALL)
+        m = re.search(pattern, str(value))
         return m.group(1).strip() if m else str(value).strip()
 
     @staticmethod
