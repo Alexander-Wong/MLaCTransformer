@@ -1,0 +1,130 @@
+input:
+  workbook_key: "workbook"
+  sheets:
+    - gettype_edge
+    - jq_null
+    - computed_edge
+    - nested_scope
+    - variant_annotation
+
+sheets:
+
+  # ---------------------------------------------------------------------------
+  # gettype_edge — covers _get_type() with empty string, number, boolean, string
+  # ---------------------------------------------------------------------------
+  gettype_edge:
+    sitecore_config:
+      rootPath: "/test/gettype"
+      dictionaries:
+        templates:
+          item: "{00000000-0000-0000-0000-000000000001}"
+    items:
+      - templateKey: "item"
+        filter: '.'
+        fields:
+          - name: "TypedValue"
+            value: "Value"
+            type: "getType"
+
+  # ---------------------------------------------------------------------------
+  # jq_null — covers _apply_jq_transform() when JQ result is None → returns ""
+  # ---------------------------------------------------------------------------
+  jq_null:
+    sitecore_config:
+      rootPath: "/test/jqnull"
+      dictionaries:
+        templates:
+          item: "{00000000-0000-0000-0000-000000000002}"
+    items:
+      - templateKey: "item"
+        filter: '.'
+        fields:
+          - name: "NullResult"
+            value: "Value"
+            transform: "jq: null"
+
+  # ---------------------------------------------------------------------------
+  # computed_edge — covers:
+  #   - computed field with no condition key  → returns {"name": ..., "value": ""}
+  #   - computed field with invalid JQ condition → exception caught, matched=False
+  # ---------------------------------------------------------------------------
+  computed_edge:
+    sitecore_config:
+      rootPath: "/test/computed"
+      dictionaries:
+        templates:
+          item: "{00000000-0000-0000-0000-000000000003}"
+    items:
+      - templateKey: "item"
+        filter: '.'
+        fields:
+          - name: "NoCondition"
+            computed: true
+            value: "Status"
+          - name: "BadCondition"
+            computed: true
+            condition: "jq: {[["
+            value: "Status"
+            else_value: "Status"
+
+  # ---------------------------------------------------------------------------
+  # nested_scope — covers:
+  #   - scope_children: true  → _find_row_positions() + row slicing
+  #   - children recursion    → item["children"] built from scoped context
+  # ---------------------------------------------------------------------------
+  nested_scope:
+    sitecore_config:
+      rootPath: "/test/nested"
+      dictionaries:
+        templates:
+          category: "{00000000-0000-0000-0000-000000000004}"
+          item: "{00000000-0000-0000-0000-000000000005}"
+    items:
+      - templateKey: "category"
+        filter: 'map(select(.Category.value != ""))'
+        scope_children: true
+        name:
+          field: "Category"
+        fields:
+          - name: "Label"
+            value: "Category"
+        children:
+          - templateKey: "item"
+            filter: 'map(select(.Item.value != ""))'
+            name:
+              field: "Item"
+            fields:
+              - name: "Value"
+                value: "Spec"
+
+  # ---------------------------------------------------------------------------
+  # variant_annotation — covers:
+  #   - $variant_annotation token  → resolved from __cell__.annotation
+  #   - children + expand_variants combined
+  # ---------------------------------------------------------------------------
+  variant_annotation:
+    sitecore_config:
+      rootPath: "/test/variant"
+      dictionaries:
+        templates:
+          component: "{00000000-0000-0000-0000-000000000006}"
+          variant: "{00000000-0000-0000-0000-000000000007}"
+    source_structure:
+      column_base: "Base"
+      column_data:
+        - "ColA"
+        - "ColB"
+    items:
+      - templateKey: "component"
+        filter: 'map(select(.Base.value != ""))'
+        name:
+          field: "Base"
+        children:
+          - templateKey: "variant"
+            expand_variants: true
+            filter: 'map(select(.__cell__.value != ""))'
+            fields:
+              - name: "Annotation"
+                value: "$variant_annotation"
+              - name: "Value"
+                value: "$variant"

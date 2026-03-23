@@ -85,6 +85,76 @@ python -m src.mlac_etl.extractor <excel_file>
 python -m src.mlac_etl.transformer <json_file> <yaml_file>
 ```
 
+## Testing
+
+### Setup
+
+Install dev dependencies (includes `pytest` and `pytest-cov`):
+
+```bash
+poetry install --with dev
+```
+
+### Running tests
+
+```bash
+# All tests
+poetry run pytest
+
+# Unit tests only
+poetry run pytest tests/unit/
+
+# Integration tests only
+poetry run pytest tests/integration/
+
+# Specific module
+poetry run pytest tests/unit/transformer/
+poetry run pytest tests/unit/extractor/
+poetry run pytest tests/unit/validator/
+
+# With coverage report
+poetry run pytest --cov=src/mlac_etl --cov-report=term-missing
+
+# Verbose output
+poetry run pytest -v
+```
+
+### Test structure
+
+```
+tests/
+├── conftest.py                        # Shared fixtures (paths, tmp file helpers, logger init)
+├── unit/
+│   ├── extractor/
+│   │   └── test_excel_to_json.py      # Cell extraction, merged cells, comment parsing
+│   ├── transformer/
+│   │   └── test_transform.py          # All YAML operators: default, transform, computed,
+│   │                                  # required, types, tokens, dynamic fields, scope_children
+│   └── validator/
+│       └── test_params_validator.py   # File validation (existence, extension, structure)
+└── integration/
+    └── test_pipeline.py               # End-to-end: Excel → JSON → Sitecore output
+```
+
+### Mock data
+
+```
+mock/
+├── input.xlsx          # Real Excel source file (used by extractor tests)
+├── rules.yaml          # Full production YAML rules (used by integration tests)
+├── mock_data.json      # Pre-extracted intermediate JSON (bypasses extractor for transformer tests)
+└── edge_cases.yaml     # Minimal YAML rules targeting specific code paths and edge cases
+```
+
+### Coverage
+
+| Module | Coverage |
+|---|---|
+| `params_validator.py` | 100% |
+| `excel_to_json.py` | 97% |
+| `transform.py` | 96% |
+| **Overall** | **88%** |
+
 ## Requirements
 
 - Python `^3.9`

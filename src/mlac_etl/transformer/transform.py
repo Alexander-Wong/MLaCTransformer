@@ -363,10 +363,7 @@ class Transformers:
         return val
 
     def _resolve_item_name(self, row: dict, item_def: dict) -> str:
-        """Resolve the item name from name_static, name field, name_slug, or __column__ fallback."""
-        if item_def.get("name_static"):
-            return item_def["name_static"]
-
+        """Resolve the item name from name field or __column__ fallback."""
         name = item_def.get("name")
         if name:
             if isinstance(name, str):
@@ -375,10 +372,6 @@ class Transformers:
             if name.get("transform"):
                 val = self._apply_transform(val, name["transform"])
             return val
-
-        name_slug = item_def.get("name_slug")
-        if name_slug:
-            return self._slugify(self._cell_value(row, name_slug["field"]))
 
         # Normalized package rows: default name is the column name
         if _KEY_COLUMN in row:
@@ -477,11 +470,3 @@ class Transformers:
         m = re.search(pattern, str(value))
         return m.group(1).strip() if m else str(value).strip()
 
-    @staticmethod
-    def _slugify(text: str) -> str:
-        """Convert a string into a URL/name-safe slug."""
-        text = str(text).strip().lower()
-        text = re.sub(r"[^\w\s-]", "", text)
-        text = re.sub(r"[\s_-]+", "-", text)
-        text = re.sub(r"^-+|-+$", "", text)
-        return text

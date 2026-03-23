@@ -45,7 +45,9 @@
       "Bash(mlac-extractor --help)",
       "Bash(mlac-transformer --help)",
       "Bash(poetry lock:*)",
-      "Bash(mlac-transformer output/extraction/2026/03/21/input-12-21-22.json mock/rules.yaml)"
+      "Bash(mlac-transformer output/extraction/2026/03/21/input-12-21-22.json mock/rules.yaml)",
+      "Bash(python3:*)",
+      "Bash(poetry install:*)"
     ]
   }
 }

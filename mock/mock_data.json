@@ -1,0 +1,38 @@
+{
+  "workbook": {
+    "gettype_edge": [
+      { "Value": { "value": "" } },
+      { "Value": { "value": "42" } },
+      { "Value": { "value": "3.14" } },
+      { "Value": { "value": "yes" } },
+      { "Value": { "value": "✓" } },
+      { "Value": { "value": "hello" } }
+    ],
+    "jq_null": [
+      { "Value": { "value": "hello" } }
+    ],
+    "computed_edge": [
+      { "Status": { "value": "active" } }
+    ],
+    "nested_scope": [
+      { "Category": { "value": "Engine" },      "Item": { "value": "" },             "Spec": { "value": "" } },
+      { "Category": { "value": "" },             "Item": { "value": "Displacement" }, "Spec": { "value": "2.0L" } },
+      { "Category": { "value": "" },             "Item": { "value": "Horsepower" },   "Spec": { "value": "200hp" } },
+      { "Category": { "value": "Transmission" }, "Item": { "value": "" },             "Spec": { "value": "" } },
+      { "Category": { "value": "" },             "Item": { "value": "Type" },         "Spec": { "value": "6-speed" } },
+      { "Category": { "value": "" },             "Item": { "value": "Ratios" },       "Spec": { "value": "3.5:1" } }
+    ],
+    "variant_annotation": [
+      {
+        "Base": { "value": "Component A" },
+        "ColA": { "value": "X", "annotation": "Note for ColA on A" },
+        "ColB": { "value": "" }
+      },
+      {
+        "Base": { "value": "Component B" },
+        "ColA": { "value": "" },
+        "ColB": { "value": "X", "annotation": "Note for ColB on B" }
+      }
+    ]
+  }
+}
