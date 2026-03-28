@@ -28,7 +28,23 @@ echo "→ Bumping version ($BUMP)..."
 poetry version $BUMP
 
 echo "→ Updating CHANGELOG.md..."
-poetry run cz changelog
+VERSION=$(poetry version --short)
+DATETIME=$(date +"%Y-%m-%d %H:%M:%S")
+DESC=$(echo "$MSG" | head -1 | sed 's/^[a-z]*([^)]*): //' | sed 's/^[a-z]*!*: //')
+SCOPE=$(echo "$MSG" | head -1 | grep -oE '\([^)]+\)' | tr -d '()')
+
+if [ -n "$SCOPE" ]; then
+  ENTRY="## [$VERSION] - $DATETIME\n\n### $TYPE\n\n- **$SCOPE**: $DESC ($DATETIME)\n\n---\n\n"
+else
+  ENTRY="## [$VERSION] - $DATETIME\n\n### $TYPE\n\n- $DESC ($DATETIME)\n\n---\n\n"
+fi
+
+if [ -f CHANGELOG.md ]; then
+  EXISTING=$(cat CHANGELOG.md)
+  printf "%b%s" "$ENTRY" "$EXISTING" > CHANGELOG.md
+else
+  printf "%b" "$ENTRY" > CHANGELOG.md
+fi
 
 git add pyproject.toml CHANGELOG.md
 BUMPING_VERSION=1 git commit --amend --no-edit
