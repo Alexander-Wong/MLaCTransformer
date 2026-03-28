@@ -1,15 +1,8 @@
-## Unreleased
+## [1.6.0] - 2026-03-28 15:25:35
 
-### Feat
+### feat
 
-- test datetime in changelog
-- test changelog generrator
-- tes minor
-- **new-support**: new support
-- **addind-suppor-to-a-new-feature**: this allows bla bla bla
+- handle null cell value (2026-03-28 15:25:35)
 
-### Fix
+---
 
-- **fixing-details**: fixing
-- **fix-version**: fix version
-- **fix-version**: fix version
