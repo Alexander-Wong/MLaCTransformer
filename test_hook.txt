@@ -2,3 +2,4 @@
 test feat
 fix test
 feat test
+changelog test
