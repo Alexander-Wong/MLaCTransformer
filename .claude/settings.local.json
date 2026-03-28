@@ -47,7 +47,13 @@
       "Bash(poetry lock:*)",
       "Bash(mlac-transformer output/extraction/2026/03/21/input-12-21-22.json mock/rules.yaml)",
       "Bash(python3:*)",
-      "Bash(poetry install:*)"
+      "Bash(poetry install:*)",
+      "Bash(chmod +x /Users/alexanderwong/Documents/VML/MLaCTransformer/.githooks/post-commit)",
+      "Bash(git -C /Users/alexanderwong/Documents/VML/MLaCTransformer config core.hooksPath .githooks)",
+      "Bash(git -C /Users/alexanderwong/Documents/VML/MLaCTransformer config core.hooksPath)",
+      "Bash(poetry version:*)",
+      "Bash(poetry add:*)",
+      "Bash(bash -x .githooks/post-commit)"
     ]
   }
 }

@@ -1,0 +1,31 @@
+#!/bin/bash
+
+# Prevent infinite loop on amend
+if [ "$BUMPING_VERSION" = "1" ]; then
+  exit 0
+fi
+
+# If pyproject.toml is already in this commit, skip
+if git show --stat HEAD | grep -q "pyproject.toml"; then
+  exit 0
+fi
+
+MSG=$(git log -1 --pretty=%B)
+TYPE=$(echo "$MSG" | head -1 | grep -oE '^[a-z]+')
+BREAKING=$(echo "$MSG" | grep -cE "(BREAKING CHANGE|^[a-z]+!:)" || true)
+
+if [ "$BREAKING" -gt 0 ]; then
+  BUMP="major"
+elif [ "$TYPE" = "feat" ]; then
+  BUMP="minor"
+elif [ "$TYPE" = "fix" ]; then
+  BUMP="patch"
+else
+  exit 0
+fi
+
+echo "→ Bumping version ($BUMP)..."
+poetry version $BUMP
+
+git add pyproject.toml
+BUMPING_VERSION=1 git commit --amend --no-edit
