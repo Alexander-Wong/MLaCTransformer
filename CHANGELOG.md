@@ -2,6 +2,7 @@
 
 ### Feat
 
+- test datetime in changelog
 - test changelog generrator
 - tes minor
 - **new-support**: new support
