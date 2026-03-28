@@ -27,5 +27,8 @@ fi
 echo "→ Bumping version ($BUMP)..."
 poetry version $BUMP
 
-git add pyproject.toml
+echo "→ Updating CHANGELOG.md..."
+poetry run cz changelog
+
+git add pyproject.toml CHANGELOG.md
 BUMPING_VERSION=1 git commit --amend --no-edit
