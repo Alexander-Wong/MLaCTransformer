@@ -3,12 +3,14 @@ import re
 import warnings
 import openpyxl
 from openpyxl.cell.cell import MergedCell
+from xlcalculator import ModelCompiler, Evaluator
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from mlac_etl.logger import write_log
 
 _RE_AUTHOR_TIMESTAMP = re.compile(r".+\s{2,}\(\d{4}-\d{2}-\d{2}")
+_RE_HEADER_PAREN = re.compile(r"^\s*\([^)]*\)\s*|\s*\([^)]*\)\s*$")
 
 
 class ExcelToJson:
@@ -26,6 +28,7 @@ class ExcelToJson:
         """Store the input path and resolve the timestamped output directory."""
         self.today = datetime.today()
         self.excel_path = excel_path
+        self._evaluator = None
         self.output_path = (
             Path("output/extraction")
             / self.today.strftime("%Y")
@@ -43,12 +46,20 @@ class ExcelToJson:
             write_log("error", f"Failed to read Excel file '{self.excel_path}': {e}")
             raise
 
+        if self._workbook_has_formulas(wb):
+            try:
+                compiler = ModelCompiler()
+                xc_model = compiler.read_and_parse_archive(self.excel_path)
+                self._evaluator = Evaluator(xc_model)
+            except Exception as e:
+                write_log("warning", f"xlcalculator failed to initialize for '{self.excel_path}': {e}. Formula cells will return raw formula strings.")
+
         raw_data = {}
 
         for sheet_name in wb.sheetnames:
             try:
                 ws = wb[sheet_name]
-                rows, group_id_map = self._build_sheet_rows(ws)
+                rows, group_id_map = self._build_sheet_rows(ws, sheet_name)
                 raw_data[sheet_name] = self._collapse_groups(rows, group_id_map)
             except Exception as e:
                 write_log("error", f"Failed to process sheet '{sheet_name}' in '{self.excel_path}': {e}")
@@ -67,7 +78,7 @@ class ExcelToJson:
 
         return str(raw_file)
 
-    def _build_sheet_rows(self, ws) -> tuple:
+    def _build_sheet_rows(self, ws, sheet_name: str = "") -> tuple:
         """Read a worksheet into row dicts and a group_id_map for merged-row grouping.
 
         Two-pass approach: first pass handles plain cells; second pass propagates
@@ -77,7 +88,7 @@ class ExcelToJson:
             return [], {}
 
         headers = [
-            str(cell.value) if cell.value is not None else None
+            self._clean_header(str(cell.value)) if cell.value is not None else None
             for cell in ws[1]
         ]
 
@@ -95,13 +106,13 @@ class ExcelToJson:
                 if not header or header.startswith("Unnamed"):
                     continue
                 if not isinstance(cell, MergedCell) and (excel_row, col_idx) not in merged_top_lefts:
-                    rows[df_row][header] = self._build_cell_object(cell)
+                    rows[df_row][header] = self._build_cell_object(cell, sheet_name)
 
         # Second pass: resolve merged ranges and build group_id_map
         group_id_map = {i: i for i in range(n_rows)}
         for merged_range in ws.merged_cells.ranges:
             top_left = ws.cell(merged_range.min_row, merged_range.min_col)
-            cell_obj = self._build_cell_object(top_left)
+            cell_obj = self._build_cell_object(top_left, sheet_name)
             first_df_row = None
             for excel_row in range(merged_range.min_row, merged_range.max_row + 1):
                 df_row = excel_row - 2
@@ -119,12 +130,25 @@ class ExcelToJson:
 
         return rows, group_id_map
 
-    def _build_cell_object(self, cell) -> dict:
+    def _build_cell_object(self, cell, sheet_name: str = "") -> dict:
         """Return `{"value": ...}`, adding `"annotation"` only when a comment is present."""
-        obj = {"value": self._clean_value(cell.value)}
+        obj = {"value": self._clean_value(self._resolve_cell_value(cell, sheet_name))}
         if cell.comment and cell.comment.text:
             obj["annotation"] = self._parse_comment(cell.comment.text, cell.comment.author)
         return obj
+
+    def _resolve_cell_value(self, cell, sheet_name: str):
+        """Return the evaluated result for formula cells; return raw value otherwise."""
+        value = cell.value
+        if self._evaluator is None or not (isinstance(value, str) and value.startswith("=")):
+            return value
+        try:
+            quote = "'" in sheet_name or " " in sheet_name
+            ref = f"'{sheet_name}'!{cell.coordinate}" if quote else f"{sheet_name}!{cell.coordinate}"
+            return self._evaluator.evaluate(ref)
+        except Exception as e:
+            write_log("warning", f"Could not evaluate formula '{value}' at {sheet_name}!{cell.coordinate}: {e}")
+            return value
 
     def _collapse_groups(self, rows: list, group_id_map: dict) -> list:
         """Merge rows that share the same group_id (vertical merge group) into a single record."""
@@ -184,6 +208,21 @@ class ExcelToJson:
             if text.startswith(prefix):
                 text = text[len(prefix):]
         return text.strip()
+
+    @staticmethod
+    def _workbook_has_formulas(wb) -> bool:
+        """Return True as soon as a formula cell is found; avoids full scan when unnecessary."""
+        for sheet_name in wb.sheetnames:
+            for row in wb[sheet_name].iter_rows(min_row=2):
+                for cell in row:
+                    if isinstance(cell.value, str) and cell.value.startswith("="):
+                        return True
+        return False
+
+    @staticmethod
+    def _clean_header(value: str) -> str:
+        """Strip parenthetical annotations from the start or end of a header string."""
+        return _RE_HEADER_PAREN.sub("", value).strip()
 
     @staticmethod
     def _clean_value(value) -> str:
