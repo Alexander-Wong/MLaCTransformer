@@ -4,6 +4,7 @@ import warnings
 import openpyxl
 from openpyxl.cell.cell import MergedCell
 from xlcalculator import ModelCompiler, Evaluator
+import mlac_etl.extractor.xl_custom_functions  # noqa: F401 — registers custom xl functions at import time
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
