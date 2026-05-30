@@ -364,6 +364,109 @@ transform: '\((\d+)\)'                   # extracts number inside parentheses
 
 ---
 
+## Extractor — Advanced Features
+
+### Formula evaluation
+
+The extractor automatically evaluates Excel formula cells using `xlcalculator`. No configuration is required — if any cell in the workbook starts with `=`, the engine is initialized and every formula cell is resolved to its computed value. If evaluation fails, the raw formula string is preserved and a warning is logged.
+
+Supported built-in functions cover arithmetic, logic, text, and date operations. The following additional text functions are also supported:
+
+| Function | Behavior |
+|---|---|
+| `SUBSTITUTE(text, old, new, [n])` | Replaces all or the nth occurrence of `old` with `new` |
+| `SEARCH(find, within, [start])` | Case-insensitive position search with `*` and `?` wildcards |
+| `TEXT(value, format)` | Formats a number using Excel format codes (`0`, `#,##0`, `0%`, `@`) |
+| `VALUE(text)` | Converts a string to a number, stripping `,`, `$`, `%` |
+| `TEXTJOIN(delim, ignore_empty, ...)` | Joins strings with a delimiter |
+| `PROPER(text)` | Title-cases a string |
+| `CHAR(n)` | Returns the character for Unicode code point `n` |
+| `CLEAN(text)` | Removes non-printable characters (ASCII < 32) |
+
+---
+
+### Header normalization
+
+Column headers are normalized once at extraction time before any data is read:
+
+- **Trailing parenthetical hints are stripped** — `Revision Date (for content team)` → `Revision Date`
+- **Multiple trailing groups are stripped** — `Name (hint1) (hint2)` → `Name`
+- **`(Key)` suffix is preserved** — `Powertrain ID (Key)` stays unchanged; it is the primary row identifier used by the MAP engine
+- **`[MAP]` hints are stripped from the slug** — `[MAP] C-001 (link to colors)` → `[MAP] C-001`
+- **Leading parenthetical groups are NOT stripped** — only trailing groups are affected
+
+This means YAML and JQ expressions always reference the clean, stable header name without any metadata noise from the Excel file.
+
+---
+
+### Universal Matrix Mapping
+
+The MAP engine resolves cross-sheet relations defined directly in the Excel template. No YAML configuration is needed — the engine reads the column structure automatically.
+
+#### How to define relations in Excel
+
+**Source sheet** — add one column per relation target, prefixed with `[MAP]`:
+
+| Feature ID (Key) | Name | [MAP] package-integra | [MAP] package-a-spec |
+|---|---|---|---|
+| sunroof | Sunroof | YES | YES |
+| sport-seats | Sport Seats | | YES |
+
+**Target sheet** — add a `(Key)` column whose values match the `[MAP]` slugs:
+
+| Package Alias (Key) | Package Name |
+|---|---|
+| package-integra | Integra |
+| package-a-spec | A-Spec |
+
+#### What the engine produces
+
+After extraction, each target row receives a `__MAPPED_<sheet>` key containing the related source rows:
+
+```json
+{
+  "bap_trims_packages": [
+    {
+      "Package Alias (Key)": { "value": "package-integra" },
+      "Package Name":        { "value": "Integra" },
+      "__MAPPED_bap_trims_features": [
+        { "Feature ID (Key)": { "value": "sunroof" }, "Name": { "value": "Sunroof" }, "__MAP_VALUE__": "YES" }
+      ]
+    }
+  ]
+}
+```
+
+#### Truthy / falsy values
+
+A `[MAP]` cell is treated as a relation when its value is **not** one of: empty, `0`, `FALSE`, `NO`, `N`. Any other value (e.g. `YES`, `X`, `1`, `H`) is treated as truthy and creates the relation.
+
+#### Hints in `[MAP]` column names
+
+The `(hint)` in `[MAP] C-001 (link to colors)` is stripped during header normalization. The slug used for matching is always the part immediately after `[MAP]` — in this case `C-001`. Hints are purely for the benefit of the Excel author.
+
+---
+
+### `__GLOBAL_WORKBOOK__`
+
+After MAP relations are resolved, the full workbook is serialized as a JSON string and injected as a special sheet:
+
+```json
+"__GLOBAL_WORKBOOK__": [
+  { "__FULL_WORKBOOK__": { "value": "{ ...entire workbook JSON... }" } }
+]
+```
+
+This allows JQ transforms to cross-reference any sheet, including inverse relations (a source sheet reading data from a target sheet) or lookups against catalog sheets that have no `[MAP]` columns.
+
+**Example JQ usage:**
+
+```yaml
+transform: 'jq: (.__GLOBAL_WORKBOOK__[0].__FULL_WORKBOOK__.value | fromjson) as $wb | $wb.bap_powertrains[] | select(.["Powertrain ID (Key)"].value == "eng-001") | .Title.value'
+```
+
+---
+
 ## Advanced Usage
 
 ### Extracting data from cell annotations
@@ -518,6 +621,15 @@ A field marked `required: true` resolved to an empty string. The log will includ
 ### Empty `items` list in output
 The `filter` expression matched zero rows. Inspect the raw extraction JSON and verify that the column names and values in the JQ expression match exactly (including casing and whitespace).
 
+### Formula cell shows raw formula string (e.g. `=UPPER(A1)`) in output
+`xlcalculator` could not evaluate the formula. Check the log for a `[WARNING]` entry with the cell reference and error. Common causes: unsupported function, reference to a cell outside the sheet, or a circular dependency. If the function is a text function, verify it is listed in the supported functions table above.
+
+### `[MAP]` relations not injected (`__MAPPED_*` key missing)
+Two possible causes: (1) the `[MAP]` slug does not exactly match any `(Key)` value — check for trailing spaces or casing differences; (2) the `[MAP]` cell value is falsy (`NO`, `0`, `FALSE`, `N`, or empty). Use the raw extraction JSON to inspect both the slug and the key values.
+
+### Column name in YAML does not match extraction JSON
+The extractor normalizes headers — trailing parenthetical suffixes are stripped (`Type (Drop)` → `Type`). The `(Key)` suffix is preserved. Check the raw extraction JSON for the actual key names before writing YAML rules.
+
 ---
 
 ## Contributing — Semantic Commits
@@ -604,3 +716,21 @@ It auto-detects the output type at runtime: numeric strings become `"number"`, r
 
 **Q: Can `expand_variants` be filtered?**
 Yes. Apply a JQ `filter` to the variant rows to exclude columns where the cell value does not meet a condition — for example, `'map(select(.__cell__.value == "X"))'` keeps only columns where the cell contains `X`.
+
+**Q: Are Excel formulas evaluated during extraction?**
+Yes. The extractor automatically detects formula cells and evaluates them using `xlcalculator`. If a formula cannot be evaluated (unsupported function, reference error), the raw formula string is preserved and a warning is logged. No configuration is required.
+
+**Q: What Excel functions are supported in formula evaluation?**
+`xlcalculator` covers most arithmetic, logic, and date functions. The following text functions are added via custom implementations: `SUBSTITUTE`, `SEARCH`, `TEXT`, `VALUE`, `TEXTJOIN`, `PROPER`, `CHAR`, `CLEAN`.
+
+**Q: How does the `[MAP]` mechanism work?**
+Add columns prefixed with `[MAP]` to a source sheet — each column name after `[MAP]` is the slug that links to a target row. In the target sheet, add a `(Key)` column whose values match those slugs. The extractor resolves all relations automatically and injects `__MAPPED_<sheet>` arrays into the matching target rows.
+
+**Q: Can a `[MAP]` column name include a hint?**
+Yes. `[MAP] C-001 (link to colors)` is normalized to `[MAP] C-001` at extraction time. The hint is stripped and has no effect on matching. Use hints freely to document the relation for Excel authors.
+
+**Q: What if the `(Key)` value has no matching `[MAP]` slug?**
+The row is left unchanged — no `__MAPPED_*` key is injected. No error is raised.
+
+**Q: When should I use `__GLOBAL_WORKBOOK__` vs `__MAPPED_*`?**
+Use `__MAPPED_*` for forward relations already defined by `[MAP]` columns — it is zero-config and directly available on each row. Use `__GLOBAL_WORKBOOK__` for inverse lookups (source sheet referencing the target), catalog lookups to sheets without `[MAP]` columns, or any cross-sheet access that the MAP engine does not cover automatically.

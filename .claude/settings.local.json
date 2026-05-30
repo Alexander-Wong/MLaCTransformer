@@ -61,7 +61,8 @@
       "WebFetch(domain:formulas.readthedocs.io)",
       "WebFetch(domain:python-tools-for-excel.readthedocs.io)",
       "Bash(pip3 install *)",
-      "Bash(pip3 uninstall *)"
+      "Bash(pip3 uninstall *)",
+      "Bash(md5 src/mlac_etl/extractor/excel_to_json.py src/mlac_etl/extractor/excel_to_json1.py)"
     ]
   }
 }

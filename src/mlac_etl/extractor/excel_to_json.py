@@ -11,7 +11,8 @@ from pathlib import Path
 from mlac_etl.logger import write_log
 
 _RE_AUTHOR_TIMESTAMP = re.compile(r".+\s{2,}\(\d{4}-\d{2}-\d{2}")
-_RE_HEADER_PAREN = re.compile(r"^\s*\([^)]*\)\s*|\s*\([^)]*\)\s*$")
+_RE_TRAILING_PARENS = re.compile(r"\s*\([^)]*\)\s*$")
+_RE_KEY_SUFFIX = re.compile(r"\(Key\)\s*$")
 
 
 class ExcelToJson:
@@ -23,6 +24,10 @@ class ExcelToJson:
 
     If the cell has a comment, one additional key is added:
         { "value": "...", "annotation": "<comment text>" }
+
+    Formula cells are evaluated via xlcalculator (lazy-initialized only when
+    formulas are detected). Relational data is resolved through the Universal
+    Matrix Mapping engine using [MAP] columns and (Key) identifiers.
     """
 
     def __init__(self, excel_path: str) -> None:
@@ -67,6 +72,17 @@ class ExcelToJson:
                 raise
 
         try:
+            raw_data = self._apply_universal_matrix_mapping(raw_data)
+
+            raw_data_copy = {k: v for k, v in raw_data.items()}
+            raw_data["__GLOBAL_WORKBOOK__"] = [{"__FULL_WORKBOOK__": {"value": json.dumps(raw_data_copy)}}]
+
+            write_log("info", "Global Workbook successfully injected.")
+        except Exception as e:
+            write_log("error", f"Failed to run Matrix Mapping or Global Workbook injection: {e}")
+            raise
+
+        try:
             self.output_path.mkdir(parents=True, exist_ok=True)
             raw_file = self.output_path / (Path(self.excel_path).stem + "-" + self.today.strftime("%H-%M-%S") + ".json")
             raw_file.write_text(
@@ -79,27 +95,107 @@ class ExcelToJson:
 
         return str(raw_file)
 
-    def _build_sheet_rows(self, ws, sheet_name: str = "") -> tuple:
-        """Read a worksheet into row dicts and a group_id_map for merged-row grouping.
+    # =========================================================================
+    # UNIVERSAL MATRIX MAPPING
+    # =========================================================================
 
-        Two-pass approach: first pass handles plain cells; second pass propagates
-        merged-range values and links rows that share a vertical merge into a group.
+    def _val(self, cell_obj) -> str:
+        """Extract the string value from a cell object dict or a raw value."""
+        if isinstance(cell_obj, dict):
+            return str(cell_obj.get("value", "")).strip()
+        return str(cell_obj or "").strip()
+
+    def _find_primary_key(self, row: dict) -> str:
+        """Return the value of the first column whose name contains '(Key)', or None if absent."""
+        for col_name, cell_obj in row.items():
+            if "(Key)" in str(col_name):
+                return self._val(cell_obj)
+        return None
+
+    def _apply_universal_matrix_mapping(self, raw_data: dict) -> dict:
+        """Resolve cross-sheet relations defined by [MAP] columns and (Key) identifiers.
+
+        Pre-scan builds map_cols (which sheets/columns have [MAP]) and key_index
+        ({key_value → row_ref}) so each pass only touches relevant data.
+        PASS 1 builds the relations index restricted to MAP sheets and MAP columns.
+        PASS 2 injects via key_index in O(relations) instead of O(S × R).
         """
+        write_log("info", "Executing Universal Matrix Mapping...")
+
+        # Pre-scan: O(S × C) — headers only, no row data
+        map_cols  = {}  # sheet_name → [col_names that start with [MAP]]
+        key_index = {}  # key_value  → direct row reference in raw_data
+
+        for sheet_name, rows in raw_data.items():
+            if not rows:
+                continue
+            first_keys = list(rows[0].keys())
+            col_names = [k for k in first_keys if str(k).upper().startswith("[MAP]")]
+            if col_names:
+                map_cols[sheet_name] = col_names
+            key_col = next((k for k in first_keys if "(Key)" in str(k)), None)
+            if key_col:
+                for row in rows:
+                    key_val = self._val(row.get(key_col, {}))
+                    if key_val:
+                        key_index[key_val] = row
+
+        if not map_cols:
+            write_log("info", "No [MAP] columns found. Returning flat JSON.")
+            return raw_data
+
+        relations = defaultdict(lambda: defaultdict(list))
+        maps_found = 0
+
+        # PASS 1: only MAP sheets, only MAP columns — O(S_map × R × C_map)
+        for sheet_name, col_names in map_cols.items():
+            for row in raw_data[sheet_name]:
+                for col_name in col_names:
+                    if col_name not in row:
+                        continue
+                    target_id = col_name[5:].strip()
+                    val = self._val(row[col_name]).strip().upper()
+                    if val and val not in ["0", "FALSE", "NO", "N"]:
+                        row_copy = row.copy()
+                        row_copy["__MAP_VALUE__"] = val
+                        relations[target_id][sheet_name].append(row_copy)
+                        maps_found += 1
+
+        if maps_found == 0:
+            write_log("info", "No [MAP] relations found. Returning flat JSON.")
+            return raw_data
+
+        # PASS 2: inject via key_index — O(relations) instead of O(S × R)
+        for target_id, sources in relations.items():
+            if target_id not in key_index:
+                continue
+            row = key_index[target_id]
+            for source_sheet, mapped_rows in sources.items():
+                safe_sheet_name = re.sub(r'[^a-zA-Z0-9]', '_', source_sheet)
+                row[f"__MAPPED_{safe_sheet_name}"] = mapped_rows
+
+        write_log("info", f"Matrix mapping complete. {maps_found} relations injected.")
+        return raw_data
+
+    # =========================================================================
+    # SHEET PROCESSING
+    # =========================================================================
+
+    def _build_sheet_rows(self, ws, sheet_name: str = "") -> tuple:
+        """Read a worksheet into row dicts and a group_id_map for merged-row grouping."""
         if ws.max_row < 2:
             return [], {}
 
         headers = [
-            self._clean_header(str(cell.value)) if cell.value is not None else None
+            self._normalize_header(str(cell.value)) if cell.value is not None else None
             for cell in ws[1]
         ]
 
         n_rows = ws.max_row - 1
         rows = [{} for _ in range(n_rows)]
 
-        # Pre-build set of merged top-left coordinates to avoid building them twice
         merged_top_lefts = {(r.min_row, r.min_col) for r in ws.merged_cells.ranges}
 
-        # First pass: populate non-merged cells
         for df_row, row_cells in enumerate(ws.iter_rows(min_row=2)):
             excel_row = df_row + 2
             for col_idx, cell in enumerate(row_cells, start=1):
@@ -109,7 +205,6 @@ class ExcelToJson:
                 if not isinstance(cell, MergedCell) and (excel_row, col_idx) not in merged_top_lefts:
                     rows[df_row][header] = self._build_cell_object(cell, sheet_name)
 
-        # Second pass: resolve merged ranges and build group_id_map
         group_id_map = {i: i for i in range(n_rows)}
         for merged_range in ws.merged_cells.ranges:
             top_left = ws.cell(merged_range.min_row, merged_range.min_col)
@@ -160,7 +255,6 @@ class ExcelToJson:
         result = []
         for group_id in sorted(groups.keys()):
             group_rows = groups[group_id]
-
             seen_keys = dict.fromkeys(k for r in group_rows for k in r)
             merged = {
                 key: self._merge_cell_objects([r[key] for r in group_rows if key in r])
@@ -171,7 +265,7 @@ class ExcelToJson:
 
     def _merge_cell_objects(self, objects: list) -> dict:
         """Combine cell objects from the same group: unique non-empty values joined, first annotation wins."""
-        seen_values = {}  # ordered set: key = value string, insertion order preserved
+        seen_values = {}
         annotation = None
 
         for obj in objects:
@@ -186,29 +280,48 @@ class ExcelToJson:
             result["annotation"] = annotation
         return result
 
+    # =========================================================================
+    # STATIC HELPERS
+    # =========================================================================
+
     @staticmethod
-    def _parse_comment(text: str, author: str = "") -> str:
-        """Strip Excel metadata from a comment and return only the body text.
-
-        Handles threaded (modern) and classic (`Author:\\ntext`) comment formats.
+    def _normalize_header(header: str | None) -> str | None:
         """
-        text = (text or "").strip()
+        Canonicalize Excel column headers once at extraction time.
 
-        # Threaded comment format
-        if "======" in text:
-            return "\n".join(
-                line for line in text.split("\n")
-                if not line.startswith("======")
-                and not line.startswith("ID#")
-                and not _RE_AUTHOR_TIMESTAMP.match(line)
-            ).strip()
+        Preserves the semantic ``(Key)`` suffix (primary row identifier).
+        Strips any other trailing parenthetical suffix — e.g. ``(Drop)``,
+        ``(Reference)``, ``(Cutline)``, hints on ``[MAP]`` slugs — so YAML/jq
+        can reference stable names without Excel metadata noise.
+        """
+        if header is None:
+            return None
+        h = str(header).strip()
+        if not h or h.startswith("Unnamed"):
+            return h
 
-        # Classic comment format: "Author:\ntext"
-        if author:
-            prefix = f"{author}:\n"
-            if text.startswith(prefix):
-                text = text[len(prefix):]
-        return text.strip()
+        if h.upper().startswith("[MAP]"):
+            bracket = h.find("]")
+            if bracket == -1:
+                return h
+            prefix = h[: bracket + 1]
+            slug = h[bracket + 1 :].strip()
+            while True:
+                cleaned = _RE_TRAILING_PARENS.sub("", slug).strip()
+                if cleaned == slug:
+                    break
+                slug = cleaned
+            return f"{prefix} {slug}".strip() if slug else prefix
+
+        if _RE_KEY_SUFFIX.search(h):
+            return h
+
+        while True:
+            cleaned = _RE_TRAILING_PARENS.sub("", h).strip()
+            if cleaned == h:
+                break
+            h = cleaned
+        return h
 
     @staticmethod
     def _workbook_has_formulas(wb) -> bool:
@@ -221,9 +334,23 @@ class ExcelToJson:
         return False
 
     @staticmethod
-    def _clean_header(value: str) -> str:
-        """Strip parenthetical annotations from the start or end of a header string."""
-        return _RE_HEADER_PAREN.sub("", value).strip()
+    def _parse_comment(text: str, author: str = "") -> str:
+        """Strip Excel metadata from a comment and return only the body text."""
+        text = (text or "").strip()
+
+        if "======" in text:
+            return "\n".join(
+                line for line in text.split("\n")
+                if not line.startswith("======")
+                and not line.startswith("ID#")
+                and not _RE_AUTHOR_TIMESTAMP.match(line)
+            ).strip()
+
+        if author:
+            prefix = f"{author}:\n"
+            if text.startswith(prefix):
+                text = text[len(prefix):]
+        return text.strip()
 
     @staticmethod
     def _clean_value(value) -> str:

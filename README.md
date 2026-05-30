@@ -9,6 +9,10 @@ MLaCTransformer is a CLI tool that converts Excel spreadsheets into Sitecore-rea
 - Extracts all sheets from an `.xlsx` file into a flat JSON representation
 - Preserves cell annotations (comments) alongside cell values
 - Handles merged cells and groups vertically-merged rows into single records
+- **Excel formula evaluation** via `xlcalculator` — lazy-initialized only when formulas are detected; falls back to raw formula string on failure
+- **Header normalization** — strips trailing parenthetical hints (e.g. `Revision Date (hint)` → `Revision Date`); preserves semantic `(Key)` suffix
+- **Universal Matrix Mapping engine** — resolves cross-sheet relations using `[MAP]` columns and `(Key)` row identifiers; injects `__MAPPED_<sheet>` entries
+- **`__GLOBAL_WORKBOOK__`** — serializes the full workbook into the extraction JSON so JQ transforms can cross-reference any sheet
 - Declarative YAML-driven transformation with JQ filter support
 - Computed fields with conditional logic (`condition`, `omit_if_false`, `else_value`)
 - Dynamic field generation from scoped row data
@@ -123,27 +127,30 @@ poetry run pytest -v
 
 ```
 tests/
-├── conftest.py                        # Shared fixtures (paths, tmp file helpers, logger init)
+├── conftest.py                             # Shared fixtures (paths, tmp file helpers, logger init)
 ├── unit/
 │   ├── extractor/
-│   │   └── test_excel_to_json.py      # Cell extraction, merged cells, comment parsing
+│   │   ├── test_excel_to_json.py           # Cell extraction, merged cells, comment parsing,
+│   │   │                                   # header normalization, MAP engine, formula resolution
+│   │   └── test_xl_custom_functions.py     # Unit tests for each custom Excel function
 │   ├── transformer/
-│   │   └── test_transform.py          # All YAML operators: default, transform, computed,
-│   │                                  # required, types, tokens, dynamic fields, scope_children
+│   │   └── test_transform.py               # All YAML operators: default, transform, computed,
+│   │                                       # required, types, tokens, dynamic fields, scope_children
 │   └── validator/
-│       └── test_params_validator.py   # File validation (existence, extension, structure)
+│       └── test_params_validator.py        # File validation (existence, extension, structure)
 └── integration/
-    └── test_pipeline.py               # End-to-end: Excel → JSON → Sitecore output
+    └── test_pipeline.py                    # End-to-end: Excel → JSON → Sitecore output
 ```
 
 ### Mock data
 
 ```
 mock/
-├── input.xlsx          # Real Excel source file (used by extractor tests)
-├── rules.yaml          # Full production YAML rules (used by integration tests)
-├── mock_data.json      # Pre-extracted intermediate JSON (bypasses extractor for transformer tests)
-└── edge_cases.yaml     # Minimal YAML rules targeting specific code paths and edge cases
+├── input.xlsx                  # Real Excel source file (used by extractor and integration tests)
+├── 01 - INTEGRA - BAP.xlsx     # Full BAP template with [MAP] columns and Excel formulas
+├── rules.yaml                  # Full production YAML rules (used by integration tests)
+├── mock_data.json              # Pre-extracted intermediate JSON (bypasses extractor for transformer tests)
+└── edge_cases.yaml             # Minimal YAML rules targeting specific code paths and edge cases
 ```
 
 ### Coverage
@@ -151,13 +158,14 @@ mock/
 | Module | Coverage |
 |---|---|
 | `params_validator.py` | 100% |
-| `excel_to_json.py` | 97% |
+| `xl_custom_functions.py` | 99% |
+| `excel_to_json.py` | 91% |
 | `transform.py` | 96% |
-| **Overall** | **88%** |
+| **Overall** | **~95%** (excl. CLI entry point) |
 
 ## Requirements
 
-- Python `^3.9`
+- Python `^3.10`
 - [Poetry](https://python-poetry.org/docs/#installation)
 
 | Package | Version |
@@ -165,6 +173,7 @@ mock/
 | `openpyxl` | `^3.1.0` |
 | `PyYAML` | `^6.0.1` |
 | `jq` | `^1.11.0` |
+| `xlcalculator` | `>=0.4.0` |
 
 ## Contributing
 
