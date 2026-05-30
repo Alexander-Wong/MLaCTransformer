@@ -130,6 +130,7 @@ def test_jq_invalid_expr_does_not_crash(tmp_json, tmp_yaml):
     result = run(tmp_json(data), tmp_yaml(yaml))
     field = find_field(first_item(result), "F")
     assert field is not None
+    assert field["value"].startswith("#ERR:")
 
 
 def test_jq_null_result_becomes_empty_string(edge_results):
@@ -678,3 +679,224 @@ def test_relation_key_preserved_on_standard_field(tmp_json, tmp_yaml):
     )
     result = run(tmp_json(data), tmp_yaml(yaml))
     assert find_field(first_item(result), "F")["relationKey"] == "myRel"
+
+
+# =============================================================================
+# N — _build_sitecore_config: branches and layoutPostProcess
+# =============================================================================
+
+def test_sitecore_config_branches_emitted_when_present(tmp_json, tmp_yaml):
+    data = {"workbook": {"s1": [{"Col": {"value": "x"}}]}}
+    yaml_str = textwrap.dedent("""\
+        sheets:
+          s1:
+            sitecore_config:
+              rootPath: /test
+              dictionaries:
+                templates:
+                  item: '{G}'
+                branches:
+                  myBranch: '{B}'
+            items:
+              - templateKey: item
+                filter: '.'
+                fields: []
+    """)
+    result = run(tmp_json(data), tmp_yaml(yaml_str))
+    assert result[0]["sitecoreConfig"]["branches"] == {"myBranch": "{B}"}
+
+
+def test_sitecore_config_branches_absent_when_not_defined(tmp_json, tmp_yaml):
+    data = {"workbook": {"s1": [{"Col": {"value": "x"}}]}}
+    yaml_str = (
+        "sheets:\n  s1:\n    sitecore_config:\n      dictionaries:\n        templates:\n          item: '{G}'\n"
+        "    items:\n      - templateKey: item\n        filter: '.'\n        fields: []\n"
+    )
+    result = run(tmp_json(data), tmp_yaml(yaml_str))
+    assert "branches" not in result[0]["sitecoreConfig"]
+
+
+def test_sitecore_config_layout_post_process_emitted(tmp_json, tmp_yaml):
+    data = {"workbook": {"s1": [{"Col": {"value": "x"}}]}}
+    yaml_str = textwrap.dedent("""\
+        sheets:
+          s1:
+            sitecore_config:
+              rootPath: /test
+              layoutPostProcess:
+                someFlag: true
+              dictionaries:
+                templates:
+                  item: '{G}'
+            items:
+              - templateKey: item
+                filter: '.'
+                fields: []
+    """)
+    result = run(tmp_json(data), tmp_yaml(yaml_str))
+    assert result[0]["sitecoreConfig"]["layoutPostProcess"] == {"someFlag": True}
+
+
+def test_sitecore_config_layout_post_process_absent_when_not_defined(tmp_json, tmp_yaml):
+    data = {"workbook": {"s1": [{"Col": {"value": "x"}}]}}
+    yaml_str = (
+        "sheets:\n  s1:\n    sitecore_config:\n      dictionaries:\n        templates:\n          item: '{G}'\n"
+        "    items:\n      - templateKey: item\n        filter: '.'\n        fields: []\n"
+    )
+    result = run(tmp_json(data), tmp_yaml(yaml_str))
+    assert "layoutPostProcess" not in result[0]["sitecoreConfig"]
+
+
+# =============================================================================
+# O — _build_single_item: branchKey support
+# =============================================================================
+
+def test_branch_key_emitted_in_item(tmp_json, tmp_yaml):
+    data = {"workbook": {"s1": [{"Col": {"value": "x"}}]}}
+    yaml_str = (
+        "sheets:\n  s1:\n    sitecore_config:\n      dictionaries:\n        templates:\n          item: '{G}'\n"
+        "    items:\n      - branchKey: myBranch\n        filter: '.'\n        fields: []\n"
+    )
+    result = run(tmp_json(data), tmp_yaml(yaml_str))
+    assert first_item(result)["branchKey"] == "myBranch"
+    assert "templateKey" not in first_item(result)
+
+
+def test_branch_key_and_template_key_both_emitted(tmp_json, tmp_yaml):
+    data = {"workbook": {"s1": [{"Col": {"value": "x"}}]}}
+    yaml_str = (
+        "sheets:\n  s1:\n    sitecore_config:\n      dictionaries:\n        templates:\n          item: '{G}'\n"
+        "    items:\n      - branchKey: myBranch\n        templateKey: item\n        filter: '.'\n        fields: []\n"
+    )
+    result = run(tmp_json(data), tmp_yaml(yaml_str))
+    item = first_item(result)
+    assert item["branchKey"] == "myBranch"
+    assert item["templateKey"] == "item"
+
+
+def test_build_single_item_raises_when_no_key(tmp_json, tmp_yaml):
+    data = {"workbook": {"s1": [{"Col": {"value": "x"}}]}}
+    yaml_str = (
+        "sheets:\n  s1:\n    sitecore_config:\n      dictionaries:\n        templates:\n          item: '{G}'\n"
+        "    items:\n      - filter: '.'\n        fields: []\n"
+    )
+    with pytest.raises(ValueError):
+        run(tmp_json(data), tmp_yaml(yaml_str))
+
+
+# =============================================================================
+# P — _resolve_item_name: name_static and name_slug
+# =============================================================================
+
+def test_name_static_returns_literal_string(tmp_json, tmp_yaml):
+    data = {"workbook": {"s1": [{"Label": {"value": "dynamic value"}}]}}
+    yaml_str = (
+        "sheets:\n  s1:\n    sitecore_config:\n      dictionaries:\n        templates:\n          item: '{G}'\n"
+        "    items:\n      - templateKey: item\n        filter: '.'\n        name_static: Fixed Name\n        fields: []\n"
+    )
+    result = run(tmp_json(data), tmp_yaml(yaml_str))
+    assert first_item(result)["name"] == "Fixed Name"
+
+
+def test_name_static_takes_precedence_over_name(tmp_json, tmp_yaml):
+    data = {"workbook": {"s1": [{"Label": {"value": "dynamic value"}}]}}
+    yaml_str = (
+        "sheets:\n  s1:\n    sitecore_config:\n      dictionaries:\n        templates:\n          item: '{G}'\n"
+        "    items:\n      - templateKey: item\n        filter: '.'\n        name_static: Static\n"
+        "        name:\n          field: Label\n        fields: []\n"
+    )
+    result = run(tmp_json(data), tmp_yaml(yaml_str))
+    assert first_item(result)["name"] == "Static"
+
+
+def test_name_slug_slugifies_field_value(tmp_json, tmp_yaml):
+    data = {"workbook": {"s1": [{"Label": {"value": "My Model Name!"}}]}}
+    yaml_str = textwrap.dedent("""\
+        sheets:
+          s1:
+            sitecore_config:
+              dictionaries:
+                templates:
+                  item: '{G}'
+            items:
+              - templateKey: item
+                filter: '.'
+                name_slug:
+                  field: Label
+                fields: []
+    """)
+    result = run(tmp_json(data), tmp_yaml(yaml_str))
+    assert first_item(result)["name"] == "my-model-name"
+
+
+def test_name_slug_collapses_spaces_and_hyphens(tmp_json, tmp_yaml):
+    data = {"workbook": {"s1": [{"Label": {"value": "Hello   World--Test"}}]}}
+    yaml_str = textwrap.dedent("""\
+        sheets:
+          s1:
+            sitecore_config:
+              dictionaries:
+                templates:
+                  item: '{G}'
+            items:
+              - templateKey: item
+                filter: '.'
+                name_slug:
+                  field: Label
+                fields: []
+    """)
+    result = run(tmp_json(data), tmp_yaml(yaml_str))
+    assert first_item(result)["name"] == "hello-world-test"
+
+
+# =============================================================================
+# Q — _apply_jq_transform: error returns empty string (not original value)
+# =============================================================================
+
+def test_jq_invalid_expr_returns_err_sentinel(tmp_json, tmp_yaml):
+    data = {"workbook": {"s1": [{"Col": {"value": "hello"}}]}}
+    yaml_str = (
+        "sheets:\n  s1:\n    sitecore_config:\n      dictionaries:\n        templates:\n          item: '{G}'\n"
+        "    items:\n      - templateKey: item\n        filter: '.'\n        fields:\n"
+        "          - name: F\n            value: Col\n            transform: 'jq: {[['\n"
+    )
+    result = run(tmp_json(data), tmp_yaml(yaml_str))
+    value = find_field(first_item(result), "F")["value"]
+    assert value.startswith("#ERR:")
+    assert "Error" in value or "Exception" in value or len(value) > len("#ERR:")
+
+
+# =============================================================================
+# R — _slugify: static method unit tests
+# =============================================================================
+
+def test_slugify_basic():
+    assert Transformers._slugify("Hello World") == "hello-world"
+
+
+def test_slugify_strips_special_chars():
+    assert Transformers._slugify("My Model Name!") == "my-model-name"
+
+
+def test_slugify_collapses_multiple_spaces():
+    assert Transformers._slugify("A   B") == "a-b"
+
+
+def test_slugify_collapses_mixed_separators():
+    assert Transformers._slugify("Hello   World--Test") == "hello-world-test"
+
+
+def test_slugify_trims_leading_trailing_hyphens():
+    assert Transformers._slugify("  - hello - ") == "hello"
+
+
+def test_slugify_preserves_numbers():
+    assert Transformers._slugify("Model 3") == "model-3"
+
+
+def test_slugify_already_slug_unchanged():
+    assert Transformers._slugify("my-slug") == "my-slug"
+
+
+def test_slugify_empty_string():
+    assert Transformers._slugify("") == ""

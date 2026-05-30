@@ -248,8 +248,12 @@ sitecore_config:
       folder:  "{GUID}"
       group:   "{GUID}"
       spec:    "{GUID}"
+    branches:                             # alias → Sitecore branch GUID (optional)
+      myBranch: "{GUID}"
     relations:                             # alias → Sitecore path
       package: "/sitecore/content/..."
+  layoutPostProcess:                       # passed through to load-data.ps1 Pass 3 (optional)
+    someFlag: true
 ```
 
 ---
@@ -277,11 +281,12 @@ A recursive list of item definitions. Each item can have `children` that follow 
 
 | Key | Type | Description |
 |---|---|---|
-| `templateKey` | string | Template alias from `dictionaries.templates` |
+| `templateKey` | string | Template alias from `dictionaries.templates` (required if no `branchKey`) |
+| `branchKey` | string | Branch alias from `dictionaries.branches` (required if no `templateKey`) |
 | `filter` | JQ expression | Selects rows from the current context list |
 | `name` | `{field, transform}` or string | Resolves the item name from a row field |
 | `name_static` | string | Literal item name (overrides `name`) |
-| `name_slug` | `{field}` | Slugifies a field value for use as the name |
+| `name_slug` | `{field}` | Slugifies a field value (lowercase, hyphens) for use as the name |
 | `fields` | list | Field definitions (see below) |
 | `dynamic_fields` | object | Generates fields dynamically from scoped rows |
 | `scope_children` | boolean | Slices the context at each matched row for children |
@@ -354,6 +359,8 @@ transform: 'jq: split(" > ") | .[0]'
 transform: 'jq: gsub("[^a-z0-9]+"; "-")'
 transform: 'jq: [.]'                      # wraps value in a JSON array
 ```
+
+> **JQ error sentinel** — if the JQ expression fails at runtime (syntax error or incompatible input), the field value is set to `#ERR:<ExceptionType>` (e.g. `#ERR:ValueError`). This is intentional: returning the raw input value could corrupt typed fields or downstream ingestion. The full error is always logged as a `[WARNING]`. Use `default:` in the field definition to substitute a safe fallback when a JQ error is possible.
 
 **Regex transform examples:**
 
@@ -585,7 +592,7 @@ The output is a JSON array with one object per processed sheet:
     "items": [
       {
         "name": "item-name",
-        "templateKey": "templateAlias",
+        "templateKey": "templateAlias",   // or "branchKey", or both
         "fields": [
           { "name": "Field Name", "value": "...", "type": "string" }
         ],
@@ -614,6 +621,12 @@ The sheet appears in `input.sheets` but has no entry under `sheets:`. Add a defi
 
 ### `JQ error on filter '...'`
 The JQ expression is invalid or does not match the expected input shape. Test your expression against the raw extraction JSON at `output/extraction/YYYY/MM/DD/<filename>-HH-MM-SS.json` using a JQ playground before adding it to the YAML.
+
+### Field value is `#ERR:<ExceptionType>` in the output
+A JQ `transform` failed at runtime. The full error is in the log as `[WARNING]`. Fix the expression or add a `default:` to the field definition as a safe fallback.
+
+### `Item definition requires branchKey or templateKey`
+An item definition in the YAML is missing both `templateKey` and `branchKey`. At least one is required for Sitecore to know which template or branch to use.
 
 ### `[REQUIRED FIELD MISSING]`
 A field marked `required: true` resolved to an empty string. The log will include the sheet name, field name, field definition, and the full row data.

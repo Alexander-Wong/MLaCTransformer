@@ -21,6 +21,7 @@ class Transformers:
     """Interprets a declarative YAML specification to transform a flat JSON workbook into Sitecore-ready output."""
 
     def __init__(self, raw_file: str, yaml_file: str) -> None:
+        """Store file paths and compute today's timestamped output directory."""
         self.raw_file      = raw_file
         self.yaml_file     = yaml_file
         self._current_sheet: str = ""
@@ -37,7 +38,7 @@ class Transformers:
     # =========================================================================
 
     def run(self) -> str:
-        """Execute the transformation pipeline."""
+        """Execute the transformation pipeline: load config, process each sheet, write output."""
         cfg = self._load_yaml()
         raw = self._load_raw_json()
 
@@ -70,6 +71,7 @@ class Transformers:
     # =========================================================================
 
     def _load_yaml(self) -> dict:
+        """Parse and return the YAML config file; raises on read or parse failure."""
         try:
             with open(self.yaml_file, "r", encoding="utf-8") as fh:
                 cfg = yaml.safe_load(fh)
@@ -80,6 +82,7 @@ class Transformers:
             raise
 
     def _load_raw_json(self) -> dict:
+        """Parse and return the extracted JSON workbook; raises on read or parse failure."""
         try:
             with open(self.raw_file, "r", encoding="utf-8") as fh:
                 data = json.load(fh)
@@ -107,7 +110,7 @@ class Transformers:
         )
 
     def _write_combined_output(self, results: dict, sheet_names: list) -> str:
-        """Write all sheets as a single JSON array. Returns the output file path."""
+        """Write all processed sheets as a single JSON array and return the output file path."""
         self.output_path.mkdir(parents=True, exist_ok=True)
         combined  = [results[s] for s in sheet_names if s in results]
         stem      = re.sub(r"-\d{2}-\d{2}-\d{2}$", "", Path(self.raw_file).stem)
@@ -136,14 +139,25 @@ class Transformers:
         return {"sitecoreConfig": sitecore_config, "relations": relations, "items": output_items}
 
     def _build_sitecore_config(self, raw_cfg: dict) -> dict:
+        """Build the sitecoreConfig block from the YAML sitecore_config section.
+
+        Includes optional branches (from dictionaries) and layoutPostProcess keys
+        when present, so the output stays compatible with load-data.ps1 Pass 3.
+        """
         dictionaries = raw_cfg.get("dictionaries", {})
-        return {
+        out = {
             "rootPath":       raw_cfg.get("rootPath", ""),
             "importStrategy": raw_cfg.get("importStrategy", {}),
             "backupStrategy": raw_cfg.get("backupStrategy", {}),
             "templates":      dictionaries.get("templates", {}),
             "relations":      dictionaries.get("relations", {}),
         }
+        branches = dictionaries.get("branches") or {}
+        if branches:
+            out["branches"] = branches
+        if "layoutPostProcess" in raw_cfg:
+            out["layoutPostProcess"] = raw_cfg["layoutPostProcess"]
+        return out
 
     # =========================================================================
     # RECURSIVE ITEM BUILDER
@@ -201,18 +215,32 @@ class Transformers:
 
     def _build_single_item(self, row: dict, item_def: dict, columns_def: dict,
                            scoped_rows: list = None) -> dict:
-        """Build one output item dict (name, templateKey, fields) without recursing."""
+        """Build one output item dict (name, fields, and branchKey or templateKey) without recursing.
+
+        Raises ValueError if neither branchKey nor templateKey is defined — at least one is required
+        so the Sitecore import knows which template or branch to use.
+        """
         base_col = columns_def.get("column_base", "")
         if _KEY_BASE_CELL not in row:
             row = {**row, _KEY_BASE_CELL: row.get(base_col, {})}
         fields = self._build_fields(row, item_def.get("fields", []), base_col=base_col)
         if item_def.get("dynamic_fields") is not None:
             fields += self._build_dynamic_fields(scoped_rows or [row], item_def["dynamic_fields"], row=row)
-        return {
-            "name":        self._resolve_item_name(row, item_def),
-            "templateKey": item_def["templateKey"],
-            "fields":      fields,
+        branch_key   = item_def.get("branchKey")
+        template_key = item_def.get("templateKey")
+        if not branch_key and not template_key:
+            raise ValueError(
+                f"Item definition requires branchKey or templateKey: {item_def.get('name', item_def)}"
+            )
+        item: dict = {
+            "name":   self._resolve_item_name(row, item_def),
+            "fields": fields,
         }
+        if branch_key:
+            item["branchKey"] = branch_key
+        if template_key:
+            item["templateKey"] = template_key
+        return item
 
     def _normalize_package_rows(self, row: dict, columns_def: dict) -> list:
         """Expand a spec row into one normalized variant dict per column_data entry."""
@@ -339,7 +367,11 @@ class Transformers:
     def _resolve_field_value(self, row: dict, value: str,
                               transform: str = None,
                               base_col: str = None) -> str:
-        """Resolve a field value token or column reference, then apply any transform."""
+        """Resolve a field value token or column reference, then apply any transform.
+
+        Supported tokens: $base, $base_annotation, $variant, $variant_annotation,
+        $annotation:<col>. Any other value is treated as a column name.
+        """
         if value == "$base":
             if _KEY_BASE_CELL in row:
                 val = str(row[_KEY_BASE_CELL].get("value", ""))
@@ -363,7 +395,10 @@ class Transformers:
         return val
 
     def _resolve_item_name(self, row: dict, item_def: dict) -> str:
-        """Resolve the item name from name field or __column__ fallback."""
+        """Resolve the item name from name_static, name field, name_slug, or __column__ fallback."""
+        if item_def.get("name_static"):
+            return item_def["name_static"]
+
         name = item_def.get("name")
         if name:
             if isinstance(name, str):
@@ -373,7 +408,10 @@ class Transformers:
                 val = self._apply_transform(val, name["transform"])
             return val
 
-        # Normalized package rows: default name is the column name
+        name_slug = item_def.get("name_slug")
+        if name_slug:
+            return self._slugify(self._cell_value(row, name_slug["field"]))
+
         if _KEY_COLUMN in row:
             return row[_KEY_COLUMN]
         return "unnamed"
@@ -452,7 +490,11 @@ class Transformers:
 
     @staticmethod
     def _apply_jq_transform(value: str, expression: str) -> str:
-        """Apply a JQ expression to a scalar string value. Returns original on error."""
+        """Apply a JQ expression to a scalar string value. Returns empty string on error.
+
+        Returning the raw input on failure is intentionally avoided — scope JSON passed
+        as a string would parse as a dict and break typed fields or load-data.ps1 ingestion.
+        """
         try:
             result = jq.first(expression, value)
             if result is None:
@@ -462,7 +504,7 @@ class Transformers:
             return str(result).strip()
         except Exception as e:
             write_log("warning", f"JQ transform error on expression '{expression}': {e}")
-            return str(value).strip()
+            return f"#ERR:{type(e).__name__}"
 
     @staticmethod
     def _extract_pattern(value: str, pattern: str) -> str:
@@ -470,3 +512,11 @@ class Transformers:
         m = re.search(pattern, str(value))
         return m.group(1).strip() if m else str(value).strip()
 
+    @staticmethod
+    def _slugify(text: str) -> str:
+        """Convert a string into a URL/name-safe slug (lowercase, hyphens, no special chars)."""
+        text = str(text).strip().lower()
+        text = re.sub(r"[^\w\s-]", "", text)
+        text = re.sub(r"[\s_-]+", "-", text)
+        text = re.sub(r"^-+|-+$", "", text)
+        return text
